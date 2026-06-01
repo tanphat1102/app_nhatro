@@ -1,10 +1,10 @@
 import io
 from datetime import date
-from pathlib import Path
 from dataclasses import dataclass
 
 import pandas as pd
 import streamlit as st
+from supabase import Client, create_client
 
 
 st.set_page_config(page_title="Nha tro - Tinh tien", layout="wide")
@@ -254,36 +254,39 @@ def to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 
-HISTORY_FILE = Path("data/lich_su_tinh_tien.xlsx")
+TABLE_NAME = "billing_history"
 
 
-def ensure_history_dir() -> None:
-    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+@st.cache_resource(show_spinner=False)
+def get_supabase_client() -> Client:
+    config = st.secrets["supabase"]
+    return create_client(config["url"], config["service_role_key"])
 
 
 def list_history_sheets() -> list[str]:
-    if not HISTORY_FILE.exists():
+    client = get_supabase_client()
+    response = client.table(TABLE_NAME).select("month").order("month", desc=True).execute()
+    if not response.data:
         return []
-    return pd.ExcelFile(HISTORY_FILE).sheet_names
+    return [row["month"] for row in response.data]
 
 
 def load_history_sheet(sheet_name: str) -> pd.DataFrame:
-    return pd.read_excel(HISTORY_FILE, sheet_name=sheet_name)
+    client = get_supabase_client()
+    response = client.table(TABLE_NAME).select("data").eq("month", sheet_name).maybe_single().execute()
+    if not response.data:
+        return pd.DataFrame()
+    rows = response.data.get("data") or []
+    return pd.DataFrame(rows)
 
 
 def save_history_sheet(sheet_name: str, df: pd.DataFrame) -> None:
-    ensure_history_dir()
-    if HISTORY_FILE.exists():
-        with pd.ExcelWriter(
-            HISTORY_FILE,
-            engine="openpyxl",
-            mode="a",
-            if_sheet_exists="replace",
-        ) as writer:
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
-    else:
-        with pd.ExcelWriter(HISTORY_FILE, engine="openpyxl", mode="w") as writer:
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
+    client = get_supabase_client()
+    payload = {
+        "month": sheet_name,
+        "data": df.where(pd.notna(df), "").to_dict(orient="records"),
+    }
+    client.table(TABLE_NAME).upsert(payload).execute()
 
 
 st.markdown("<div class='pill'>PHIẾU TÍNH TIỀN</div>", unsafe_allow_html=True)
@@ -392,17 +395,13 @@ if "last_result" in st.session_state:
     if st.button("Lưu vào lịch sử"):
         if month_label.strip():
             save_history_sheet(month_label.strip(), result_df)
-            if HISTORY_FILE.exists():
-                st.success(f"Đã lưu vào: {HISTORY_FILE}")
-            else:
-                st.error("Lưu không thành công. Vui lòng thử lại.")
+            st.success(f"Đã lưu vào Supabase: {month_label.strip()}")
         else:
             st.error("Vui lòng nhập tháng hợp lệ (YYYY-MM).")
 else:
     st.info("Nhập dữ liệu và bấm 'Tính tiền' để xem kết quả.")
 
 st.markdown("<div class='section-title'>Xem lịch sử</div>", unsafe_allow_html=True)
-st.caption(f"Đường dẫn lưu: {HISTORY_FILE}")
 history_sheets = list_history_sheets()
 if history_sheets:
     selected_sheet = st.selectbox("Chọn tháng", options=sorted(history_sheets, reverse=True))
