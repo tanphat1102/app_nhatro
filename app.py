@@ -289,6 +289,41 @@ def save_history_sheet(sheet_name: str, df: pd.DataFrame) -> None:
     client.table(TABLE_NAME).upsert(payload).execute()
 
 
+def build_month_summary(months: list[str]) -> pd.DataFrame:
+    rows = []
+    for month in months:
+        month_df = load_history_sheet(month)
+        if month_df.empty:
+            continue
+        month_df = normalize_columns(month_df.rename(columns=REVERSE_COLUMNS))
+        month_df = coerce_numeric(
+            month_df,
+            [
+                "PrevElectric",
+                "NewElectric",
+                "PrevWater",
+                "NewWater",
+                "PeopleCount",
+                "RoomPrice",
+                "ExtraCharge",
+                "TrashOverride",
+                "LightOverride",
+                "WaterFixedOverride",
+            ],
+        )
+        month_df["ElectricUsage"] = (month_df["NewElectric"] - month_df["PrevElectric"]).clip(lower=0)
+        rows.append(
+            {
+                "Tháng": month,
+                "Số phòng": int(month_df["Room"].nunique()),
+                "Tổng thu": float(month_df.get("Total", month_df["RoomPrice"]).sum()),
+                "Điện tiêu thụ": float(month_df["ElectricUsage"].sum()),
+                "Chi phí nước": float(month_df.get("WaterCost", 0).sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 st.markdown("<div class='pill'>PHIẾU TÍNH TIỀN</div>", unsafe_allow_html=True)
 st.markdown("<div class='main-title'>Quản lý tính tiền nhà trọ</div>", unsafe_allow_html=True)
 st.markdown(
@@ -404,6 +439,11 @@ else:
 st.markdown("<div class='section-title'>Xem lịch sử</div>", unsafe_allow_html=True)
 history_sheets = list_history_sheets()
 if history_sheets:
+    st.markdown("<div class='section-title'>Tổng hợp các tháng</div>", unsafe_allow_html=True)
+    summary_df = build_month_summary(history_sheets)
+    if not summary_df.empty:
+        st.dataframe(summary_df, use_container_width=True)
+
     selected_sheet = st.selectbox("Chọn tháng", options=sorted(history_sheets, reverse=True))
     history_df = load_history_sheet(selected_sheet)
     st.dataframe(history_df.rename(columns=DISPLAY_COLUMNS), use_container_width=True)
