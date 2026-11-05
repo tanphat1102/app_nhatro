@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+:root {
+  --brand-primary: #0f766e;
+  --brand-focus: #0b57d0;
+}
+
+/* Modern Web Guidance: Dialog scroll containment & backdrop */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+/* Modern Web Guidance: Responsive Table with sticky headers and container queries */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(720px, 78vh);
+  container-type: inline-size;
+}
+
+.table-wrapper table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.table-wrapper thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.table-wrapper tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: #ffffff;
+}
+
+.table-wrapper tbody tr:hover th {
+  background-color: #f8fafc;
+}
+
+@container (width < 600px) {
+  .responsive-stacked-table table,
+  .responsive-stacked-table thead,
+  .responsive-stacked-table tbody,
+  .responsive-stacked-table tr,
+  .responsive-stacked-table th,
+  .responsive-stacked-table td {
+    display: block;
+  }
+
+  .responsive-stacked-table thead {
+    display: none;
+  }
+
+  .responsive-stacked-table tr {
+    margin-block-end: 1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+
+  .responsive-stacked-table tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: #f1f5f9;
+  }
+
+  .responsive-stacked-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 600;
+    color: #475569;
+  }
+}
+
+/* Modern Web Guidance: High-contrast focus-visible outline */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--brand-focus);
+  outline-offset: 2px;
+}
+
+/* Modern Web Guidance: Canonical visually-hidden utility */
+.visually-hidden {
+  position: absolute;
+  clip-path: inset(50%);
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  white-space: nowrap;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  dialog[open] {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+}
