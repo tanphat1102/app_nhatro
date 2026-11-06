@@ -66,6 +66,122 @@ export async function compressImageFile(file: File, maxDimension = 1280, quality
 }
 
 /**
+ * Center-crops and compresses an uploaded portrait/avatar image into a 320x320 square WebP/JPEG Data URL.
+ */
+export async function compressAvatarFile(file: File, size = 320, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Không thể đọc file ảnh đại diện'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const img = new Image();
+      img.onerror = () => resolve(result);
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(result);
+            return;
+          }
+          const minSide = Math.min(img.width, img.height);
+          const sx = Math.max(0, Math.round((img.width - minSide) / 2));
+          const sy = Math.max(0, Math.round((img.height - minSide) / 2));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, size, size);
+          ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+
+          let compressed = canvas.toDataURL('image/webp', quality);
+          if (!compressed.startsWith('data:image/webp')) {
+            compressed = canvas.toDataURL('image/jpeg', quality);
+          }
+          resolve(compressed);
+        } catch {
+          resolve(result);
+        }
+      };
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Generates an illustrated avatar portrait Data URL for a tenant with 1 click.
+ */
+export function generateSampleAvatarDataUrl(meta: {
+  fullName?: string;
+  gender?: string;
+  roomNumber?: string;
+}): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 320;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const name = (meta.fullName || 'Khách Thuê').trim();
+  const words = name.split(/\s+/);
+  const initials =
+    words.length >= 2
+      ? `${words[0][0] || ''}${words[words.length - 1][0] || ''}`.toUpperCase()
+      : (name.slice(0, 2) || 'KT').toUpperCase();
+
+  const isFemale = meta.gender === 'Nữ';
+  const grad = ctx.createLinearGradient(0, 0, 320, 320);
+  if (isFemale) {
+    grad.addColorStop(0, '#ec4899');
+    grad.addColorStop(0.5, '#8b5cf6');
+    grad.addColorStop(1, '#0d9488');
+  } else {
+    grad.addColorStop(0, '#0f766e');
+    grad.addColorStop(0.5, '#059669');
+    grad.addColorStop(1, '#0284c7');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 320, 320);
+
+  // Subtle decorative circles
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.beginPath();
+  ctx.arc(270, 50, 80, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(45, 275, 65, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Silhouette shoulders & head
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+  ctx.beginPath();
+  ctx.arc(160, 325, 115, Math.PI, 0, false);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(160, 128, 56, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Initials in center
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 82px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(initials, 160, 152);
+
+  // Bottom room/name pill
+  if (meta.roomNumber) {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.fillRect(70, 248, 180, 38);
+    ctx.fillStyle = '#5eead4';
+    ctx.font = 'bold 19px sans-serif';
+    ctx.fillText(`PHÒNG ${meta.roomNumber}`, 160, 268);
+  }
+
+  return canvas.toDataURL('image/webp', 0.88);
+}
+
+/**
  * Generates a realistic sample CCCD or Rental Contract image using Canvas
  * so landlords/tenants can also test previewing & storing with 1 click.
  */

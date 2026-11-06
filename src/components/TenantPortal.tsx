@@ -5,7 +5,9 @@ import { DocumentImageItem, Invoice, Property, Room, Tenant, User } from '@/type
 import { formatVND } from './InvoiceReceiptModal';
 import { DocumentLightboxModal, LightboxPreviewData } from './DocumentLightboxModal';
 import {
+  compressAvatarFile,
   compressImageFile,
+  generateSampleAvatarDataUrl,
   generateSampleDocumentDataUrl,
   parseDocumentImages,
 } from '@/lib/imageUtils';
@@ -41,6 +43,7 @@ interface TenantPortalProps {
   onViewAllBoard: () => void;
   onUpdateTenantDocuments?: (payload: {
     tenantId: number;
+    avatarUrl?: string;
     cccdFrontUrl?: string;
     cccdBackUrl?: string;
     contractImagesJson?: string;
@@ -140,6 +143,20 @@ export function TenantPortal({
     setTimeout(() => setFeedbackSent(false), 4000);
   };
 
+  const handleUploadMyAvatar = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !myTenantProfile || !onUpdateTenantDocuments) return;
+    setUploadingDoc('avatarUrl');
+    try {
+      const dataUrl = await compressAvatarFile(files[0]);
+      await onUpdateTenantDocuments({
+        tenantId: myTenantProfile.id,
+        avatarUrl: dataUrl,
+      });
+    } finally {
+      setUploadingDoc('');
+    }
+  };
+
   const handleUploadMyCccd = async (
     field: 'cccdFrontUrl' | 'cccdBackUrl',
     files: FileList | null
@@ -181,22 +198,61 @@ export function TenantPortal({
     }
   };
 
+  const myInitial = (myTenantProfile?.fullName || user.fullName || 'K')
+    .trim()
+    .split(/\s+/)
+    .pop()?.[0]
+    ?.toUpperCase() || 'K';
+
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
       <div className="rounded-3xl border border-teal-200 bg-gradient-to-br from-teal-800 via-teal-900 to-slate-900 p-6 text-white shadow-md">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/20 px-3 py-1 text-xs font-semibold text-teal-200 border border-teal-400/30">
-              <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {property.name}
+          <div className="flex items-center gap-4">
+            {myTenantProfile?.avatarUrl ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setLightboxPreview({
+                    title: `Ảnh Đại Diện — ${myTenantProfile.fullName}`,
+                    images: [
+                      {
+                        label: `Ảnh Đại Diện (${myTenantProfile.fullName})`,
+                        dataUrl: myTenantProfile.avatarUrl,
+                      },
+                    ],
+                  })
+                }
+                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-teal-300 shadow-md"
+                title="Nhấn để phóng to ảnh đại diện"
+              >
+                <img
+                  src={myTenantProfile.avatarUrl}
+                  alt={`Ảnh đại diện của ${myTenantProfile.fullName}`}
+                  width={64}
+                  height={64}
+                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                />
+              </button>
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-teal-300/60 bg-teal-600 text-2xl font-black text-white shadow-md">
+                {myInitial}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/20 px-3 py-1 text-xs font-semibold text-teal-200 border border-teal-400/30">
+                <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+                {property.name}
+              </div>
+              <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
+                Cổng Thông Tin Phòng {room.roomNumber}
+              </h2>
+              <p className="text-xs text-teal-200/80">
+                Xin chào, <strong>{user.fullName}</strong> • 📍 {property.address}
+              </p>
             </div>
-            <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
-              Cổng Thông Tin Phòng {room.roomNumber}
-            </h2>
-            <p className="text-xs text-teal-200/80">
-              Xin chào, <strong>{user.fullName}</strong> • 📍 {property.address}
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -471,21 +527,22 @@ export function TenantPortal({
         </div>
       )}
 
-      {/* CCCD & Rental Contract Upload / Storage Section for Tenant */}
+      {/* Avatar, CCCD & Rental Contract Upload / Storage Section for Tenant */}
       {myTenantProfile && (
         <div className="rounded-2xl border border-teal-200 bg-white p-6 shadow-xs space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div>
               <h3 className="flex items-center gap-2 text-base font-extrabold text-slate-900">
                 <FileCheck2 className="h-5 w-5 text-teal-700" aria-hidden="true" />
-                Hồ Sơ Căn Cước Công Dân (CCCD) & Hợp Đồng Thuê Phòng {room.roomNumber}
+                Ảnh Đại Diện, Căn Cước Công Dân (CCCD) & Hợp Đồng Phòng {room.roomNumber}
               </h3>
               <p className="text-xs text-slate-500">
-                Tải lên hoặc xem lại hình ảnh CCCD 2 mặt và hợp đồng thuê trọ để phục vụ đăng ký tạm trú Công an.
+                Cập nhật ảnh đại diện cá nhân, hình ảnh CCCD 2 mặt và hợp đồng thuê trọ để phục vụ đăng ký tạm trú Công an.
               </p>
             </div>
 
-            {(myTenantProfile.cccdFrontUrl ||
+            {(myTenantProfile.avatarUrl ||
+              myTenantProfile.cccdFrontUrl ||
               myTenantProfile.cccdBackUrl ||
               myContractImages.length > 0 ||
               roomContractImages.length > 0) && (
@@ -493,6 +550,12 @@ export function TenantPortal({
                 type="button"
                 onClick={() => {
                   const imgs: LightboxPreviewData['images'] = [];
+                  if (myTenantProfile.avatarUrl) {
+                    imgs.push({
+                      label: `Ảnh Đại Diện — ${myTenantProfile.fullName}`,
+                      dataUrl: myTenantProfile.avatarUrl,
+                    });
+                  }
                   if (myTenantProfile.cccdFrontUrl) {
                     imgs.push({
                       label: `CCCD Mặt Trước — ${myTenantProfile.fullName}`,
@@ -512,7 +575,7 @@ export function TenantPortal({
                     imgs.push({ label: rc.title, dataUrl: rc.dataUrl, uploadedAt: rc.uploadedAt });
                   }
                   setLightboxPreview({
-                    title: `Toàn Bộ Hồ Sơ CCCD & Hợp Đồng — Phòng ${room.roomNumber}`,
+                    title: `Toàn Bộ Hồ Sơ Ảnh, CCCD & Hợp Đồng — Phòng ${room.roomNumber}`,
                     subtitle: `${myTenantProfile.fullName} • Số CCCD: ${myTenantProfile.cccd || '—'}`,
                     images: imgs,
                   });
@@ -523,6 +586,66 @@ export function TenantPortal({
                 Xem toàn bộ ảnh giấy tờ
               </button>
             )}
+          </div>
+
+          {/* Personal Avatar Upload Row */}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-teal-100 bg-teal-50/40 p-4">
+            <div className="flex items-center gap-3.5">
+              {myTenantProfile.avatarUrl ? (
+                <img
+                  src={myTenantProfile.avatarUrl}
+                  alt={`Ảnh đại diện của ${myTenantProfile.fullName}`}
+                  width={56}
+                  height={56}
+                  className="h-14 w-14 rounded-full object-cover border-2 border-teal-600 shadow-xs"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-teal-700 text-lg font-black text-white">
+                  {myInitial}
+                </div>
+              )}
+              <div>
+                <label
+                  htmlFor="tp-avatar-file"
+                  className="block text-xs font-extrabold uppercase tracking-wider text-teal-900 cursor-pointer"
+                >
+                  👤 Ảnh Đại Diện Của Bạn ({myTenantProfile.fullName})
+                </label>
+                <p className="text-xs text-slate-500">
+                  Hiển thị trên Cổng khách thuê, sơ đồ phòng và danh sách thành viên.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id="tp-avatar-file"
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleUploadMyAvatar(e.target.files)}
+                className="block text-xs text-slate-600 file:mr-2 file:rounded-xl file:border-0 file:bg-teal-700 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-teal-800 cursor-pointer"
+              />
+              {onUpdateTenantDocuments && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const sample = generateSampleAvatarDataUrl({
+                      fullName: myTenantProfile.fullName,
+                      gender: myTenantProfile.gender,
+                      roomNumber: room.roomNumber,
+                    });
+                    await onUpdateTenantDocuments({
+                      tenantId: myTenantProfile.id,
+                      avatarUrl: sample,
+                    });
+                  }}
+                  className="inline-flex items-center gap-1 rounded-xl border border-teal-300 bg-white px-2.5 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-100"
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  Avatar mẫu
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -813,42 +936,61 @@ export function TenantPortal({
           </div>
 
           <div className="space-y-2">
-            {roomTenants.map((t) => (
-              <div
-                key={t.id}
-                className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs space-y-1"
-              >
-                <div className="flex items-center justify-between font-bold text-slate-900">
-                  <span>
-                    {t.fullName}{' '}
-                    {t.isRepresentative && (
-                      <span className="rounded bg-teal-700 px-1.5 py-0.2 text-[9px] text-white">
-                        Đại diện hợp đồng
-                      </span>
-                    )}
-                  </span>
-                  <span className="font-mono text-slate-500">{t.phone}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Quê: {t.hometown || '—'}</span>
-                  {t.vehiclePlate && (
-                    <span className="font-mono text-slate-700">🏍️ {t.vehiclePlate}</span>
+            {roomTenants.map((t) => {
+              const tInit = t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
+              return (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs"
+                >
+                  {t.avatarUrl ? (
+                    <img
+                      src={t.avatarUrl}
+                      alt={`Ảnh đại diện của ${t.fullName}`}
+                      width={40}
+                      height={40}
+                      loading="lazy"
+                      className="h-10 w-10 shrink-0 rounded-full object-cover border border-teal-500/60"
+                    />
+                  ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-black text-teal-800">
+                      {tInit}
+                    </div>
                   )}
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between gap-2 font-bold text-slate-900">
+                      <span className="truncate">
+                        {t.fullName}{' '}
+                        {t.isRepresentative && (
+                          <span className="rounded bg-teal-700 px-1.5 py-0.2 text-[9px] text-white">
+                            Đại diện hợp đồng
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-mono text-slate-500 shrink-0">{t.phone}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-500">
+                      <span className="truncate">Quê: {t.hometown || '—'}</span>
+                      {t.vehiclePlate && (
+                        <span className="font-mono text-slate-700 shrink-0">🏍️ {t.vehiclePlate}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                      <span>Vào ở: {t.moveInDate || '—'}</span>
+                      <span
+                        className={`font-semibold ${
+                          t.tempResidenceStatus === 'REGISTERED'
+                            ? 'text-emerald-700'
+                            : 'text-amber-700'
+                        }`}
+                      >
+                        {t.tempResidenceStatus === 'REGISTERED' ? '✓ Đã ĐK tạm trú' : 'Chờ ĐK tạm trú'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-                  <span>Vào ở: {t.moveInDate || '—'}</span>
-                  <span
-                    className={`font-semibold ${
-                      t.tempResidenceStatus === 'REGISTERED'
-                        ? 'text-emerald-700'
-                        : 'text-amber-700'
-                    }`}
-                  >
-                    {t.tempResidenceStatus === 'REGISTERED' ? '✓ Đã ĐK tạm trú' : 'Chờ ĐK tạm trú'}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

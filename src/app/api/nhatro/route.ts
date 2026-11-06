@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
             room_id = ?, full_name = ?, phone = ?, cccd = ?, birth_year = ?, gender = ?,
             hometown = ?, occupation = ?, vehicle_plate = ?, is_representative = ?,
             move_in_date = ?, move_out_date = ?, temp_residence_status = ?, is_active = ?, notes = ?,
-            cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
+            avatar_url = ?, cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
           WHERE id = ?
         `).run(
           Number(t.roomId),
@@ -268,6 +268,7 @@ export async function POST(req: NextRequest) {
           String(t.tempResidenceStatus || 'REGISTERED'),
           t.isActive ? 1 : 0,
           String(t.notes || ''),
+          String(t.avatarUrl || ''),
           String(t.cccdFrontUrl || ''),
           String(t.cccdBackUrl || ''),
           contractImagesStr,
@@ -279,8 +280,8 @@ export async function POST(req: NextRequest) {
             property_id, room_id, full_name, phone, cccd, birth_year, gender,
             hometown, occupation, vehicle_plate, is_representative,
             move_in_date, move_out_date, temp_residence_status, is_active, notes,
-            cccd_front_url, cccd_back_url, contract_images_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            avatar_url, cccd_front_url, cccd_back_url, contract_images_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(t.propertyId),
           Number(t.roomId),
@@ -298,6 +299,7 @@ export async function POST(req: NextRequest) {
           String(t.tempResidenceStatus || 'REGISTERED'),
           t.isActive !== false ? 1 : 0,
           String(t.notes || ''),
+          String(t.avatarUrl || ''),
           String(t.cccdFrontUrl || ''),
           String(t.cccdBackUrl || ''),
           contractImagesStr
@@ -308,11 +310,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'update_tenant_documents') {
-      const { tenantId, cccdFrontUrl, cccdBackUrl, contractImagesJson } = body;
+      const { tenantId, avatarUrl, cccdFrontUrl, cccdBackUrl, contractImagesJson } = body;
       const existing = db.prepare('SELECT * FROM tenants WHERE id = ?').get(Number(tenantId)) as Record<string, unknown> | undefined;
       if (!existing) {
         return NextResponse.json({ error: 'Không tìm thấy hồ sơ khách thuê' }, { status: 404 });
       }
+      const nextAvatar = avatarUrl !== undefined ? String(avatarUrl) : String(existing.avatar_url || '');
       const nextFront = cccdFrontUrl !== undefined ? String(cccdFrontUrl) : String(existing.cccd_front_url || '');
       const nextBack = cccdBackUrl !== undefined ? String(cccdBackUrl) : String(existing.cccd_back_url || '');
       const nextContracts =
@@ -324,9 +327,9 @@ export async function POST(req: NextRequest) {
 
       db.prepare(`
         UPDATE tenants
-        SET cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
+        SET avatar_url = ?, cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
         WHERE id = ?
-      `).run(nextFront, nextBack, nextContracts, Number(tenantId));
+      `).run(nextAvatar, nextFront, nextBack, nextContracts, Number(tenantId));
       return await syncAndReturnAllData();
     }
 

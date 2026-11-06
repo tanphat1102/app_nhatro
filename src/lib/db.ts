@@ -118,6 +118,7 @@ function initSchema(db: DatabaseSync) {
       temp_residence_status TEXT NOT NULL DEFAULT 'REGISTERED',
       is_active INTEGER NOT NULL DEFAULT 1,
       notes TEXT NOT NULL DEFAULT '',
+      avatar_url TEXT NOT NULL DEFAULT '',
       cccd_front_url TEXT NOT NULL DEFAULT '',
       cccd_back_url TEXT NOT NULL DEFAULT '',
       contract_images_json TEXT NOT NULL DEFAULT '[]',
@@ -190,6 +191,7 @@ function initSchema(db: DatabaseSync) {
     }
   };
   ensureColumn('rooms', 'contract_images_json', "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn('tenants', 'avatar_url', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('tenants', 'cccd_front_url', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('tenants', 'cccd_back_url', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('tenants', 'contract_images_json', "TEXT NOT NULL DEFAULT '[]'");
@@ -893,6 +895,7 @@ export function getAllData() {
     tempResidenceStatus: String(t.temp_residence_status || 'REGISTERED') as Tenant['tempResidenceStatus'],
     isActive: Boolean(t.is_active),
     notes: String(t.notes || ''),
+    avatarUrl: String(t.avatar_url || ''),
     cccdFrontUrl: String(t.cccd_front_url || ''),
     cccdBackUrl: String(t.cccd_back_url || ''),
     contractImagesJson: String(t.contract_images_json || '[]'),
@@ -1035,11 +1038,13 @@ async function ensureNeonSchema(sql: NonNullable<ReturnType<typeof getNeonClient
         temp_residence_status TEXT NOT NULL,
         is_active INTEGER NOT NULL,
         notes TEXT NOT NULL,
+        avatar_url TEXT NOT NULL DEFAULT '',
         cccd_front_url TEXT NOT NULL DEFAULT '',
         cccd_back_url TEXT NOT NULL DEFAULT '',
         contract_images_json TEXT NOT NULL DEFAULT '[]'
       )
     `,
+    sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
     sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cccd_front_url TEXT NOT NULL DEFAULT ''`,
     sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cccd_back_url TEXT NOT NULL DEFAULT ''`,
     sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS contract_images_json TEXT NOT NULL DEFAULT '[]'`,
@@ -1229,14 +1234,14 @@ export async function syncToNeon(): Promise<void> {
           INSERT INTO tenants (
             id, property_id, room_id, full_name, phone, cccd, birth_year, gender,
             hometown, occupation, vehicle_plate, is_representative, move_in_date, move_out_date,
-            temp_residence_status, is_active, notes, cccd_front_url, cccd_back_url, contract_images_json
+            temp_residence_status, is_active, notes, avatar_url, cccd_front_url, cccd_back_url, contract_images_json
           ) VALUES (
             ${Number(t.id)}, ${Number(t.property_id)}, ${Number(t.room_id)}, ${String(t.full_name)},
             ${String(t.phone)}, ${String(t.cccd)}, ${String(t.birth_year)}, ${String(t.gender)},
             ${String(t.hometown)}, ${String(t.occupation)}, ${String(t.vehicle_plate)},
             ${Number(t.is_representative)}, ${String(t.move_in_date)}, ${String(t.move_out_date)},
             ${String(t.temp_residence_status)}, ${Number(t.is_active)}, ${String(t.notes || '')},
-            ${String(t.cccd_front_url || '')}, ${String(t.cccd_back_url || '')}, ${String(t.contract_images_json || '[]')}
+            ${String(t.avatar_url || '')}, ${String(t.cccd_front_url || '')}, ${String(t.cccd_back_url || '')}, ${String(t.contract_images_json || '[]')}
           )
         `
       ),

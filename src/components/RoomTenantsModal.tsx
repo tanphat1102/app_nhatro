@@ -6,7 +6,9 @@ import { ModalDialog } from './ModalDialog';
 import { formatVND } from './InvoiceReceiptModal';
 import { DocumentLightboxModal, LightboxPreviewData } from './DocumentLightboxModal';
 import {
+  compressAvatarFile,
   compressImageFile,
+  generateSampleAvatarDataUrl,
   generateSampleDocumentDataUrl,
   parseDocumentImages,
 } from '@/lib/imageUtils';
@@ -59,6 +61,7 @@ const emptyTenantForm = (propertyId: number, roomId: number): Partial<Tenant> =>
   tempResidenceStatus: 'REGISTERED',
   isActive: true,
   notes: '',
+  avatarUrl: '',
   cccdFrontUrl: '',
   cccdBackUrl: '',
   contractImagesJson: '[]',
@@ -119,6 +122,17 @@ export function RoomTenantsModal({
       setEditingTenant(null);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleUploadTenantAvatar = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0 || !editingTenant) return;
+    setUploadingField('avatarUrl');
+    try {
+      const dataUrl = await compressAvatarFile(fileList[0]);
+      setEditingTenant((prev) => (prev ? { ...prev, avatarUrl: dataUrl } : prev));
+    } finally {
+      setUploadingField('');
     }
   };
 
@@ -208,6 +222,12 @@ export function RoomTenantsModal({
 
   const openTenantDocumentsLightbox = (t: Tenant) => {
     const images: LightboxPreviewData['images'] = [];
+    if (t.avatarUrl) {
+      images.push({
+        label: `Ảnh Đại Diện Chân Dung — ${t.fullName}`,
+        dataUrl: t.avatarUrl,
+      });
+    }
     if (t.cccdFrontUrl) {
       images.push({
         label: `CCCD Mặt Trước — ${t.fullName} (${t.cccd || 'Chưa nhập số'})`,
@@ -229,7 +249,7 @@ export function RoomTenantsModal({
       });
     }
     setLightboxPreview({
-      title: `Hồ Sơ Giấy Tờ & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
+      title: `Hồ Sơ Ảnh & Giấy Tờ — ${t.fullName} (Phòng ${room.roomNumber})`,
       subtitle: `Số CCCD: ${t.cccd || 'Chưa cập nhật'} • SĐT: ${t.phone || '—'} • Quê quán: ${t.hometown || '—'}`,
       images,
     });
@@ -301,12 +321,97 @@ export function RoomTenantsModal({
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-teal-200 pb-2.5">
                     <h3 className="text-sm font-bold text-teal-950">
                       {editingTenant.id
-                        ? `Cập nhật hồ sơ & giấy tờ: ${editingTenant.fullName}`
+                        ? `Cập nhật hồ sơ & hình ảnh: ${editingTenant.fullName}`
                         : `Thêm người ở mới vào Phòng ${room.roomNumber}`}
                     </h3>
                     <span className="text-xs text-teal-800">
-                      Hỗ trợ tải ảnh CCCD 2 mặt & hợp đồng (tự động nén WebP dung lượng nhẹ)
+                      Hỗ trợ ảnh đại diện chân dung, CCCD 2 mặt & hợp đồng (tự động nén WebP dung lượng nhẹ)
                     </span>
+                  </div>
+
+                  {/* Avatar Photo Uploader Card */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-teal-200 bg-white p-4 shadow-2xs">
+                    <div className="flex items-center gap-4">
+                      {editingTenant.avatarUrl ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxPreview({
+                              title: `Ảnh Đại Diện — ${editingTenant.fullName || 'Khách thuê'}`,
+                              images: [
+                                {
+                                  label: `Ảnh Đại Diện Chân Dung (${editingTenant.fullName || 'Khách thuê'})`,
+                                  dataUrl: editingTenant.avatarUrl!,
+                                },
+                              ],
+                            })
+                          }
+                          className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-teal-600 shadow-sm"
+                          title="Nhấn để phóng to ảnh đại diện"
+                        >
+                          <img
+                            src={editingTenant.avatarUrl}
+                            alt={`Ảnh đại diện của ${editingTenant.fullName || 'khách thuê'}`}
+                            width={80}
+                            height={80}
+                            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                          />
+                        </button>
+                      ) : (
+                        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-teal-300 bg-teal-50 text-2xl font-black text-teal-700">
+                          {(editingTenant.fullName || 'K').trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K'}
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="t-avatar-file"
+                          className="block text-xs font-extrabold uppercase tracking-wider text-teal-900 cursor-pointer"
+                        >
+                          👤 Ảnh Đại Diện Chân Dung (Avatar Người Ở)
+                        </label>
+                        <p className="text-xs text-slate-500">
+                          Tự động căn giữa vuông 320×320px sắc nét để hiển thị trên sơ đồ phòng & danh bạ.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <input
+                            id="t-avatar-file"
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleUploadTenantAvatar(e.target.files)}
+                            className="block text-xs text-slate-600 file:mr-2 file:rounded-xl file:border-0 file:bg-teal-700 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-teal-800 cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const sampleAvatar = generateSampleAvatarDataUrl({
+                                fullName: editingTenant.fullName || 'Khách Thuê',
+                                gender: editingTenant.gender || 'Nam',
+                                roomNumber: room.roomNumber,
+                              });
+                              setEditingTenant({ ...editingTenant, avatarUrl: sampleAvatar });
+                            }}
+                            className="inline-flex items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-2.5 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-100"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                            Tạo avatar mẫu
+                          </button>
+                          {editingTenant.avatarUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingTenant({ ...editingTenant, avatarUrl: '' })}
+                              className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              Xóa avatar
+                            </button>
+                          )}
+                        </div>
+                        {uploadingField === 'avatarUrl' && (
+                          <p className="text-xs font-semibold text-teal-700">Đang cắt vuông & nén ảnh đại diện...</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
@@ -851,35 +956,67 @@ export function RoomTenantsModal({
                       const tContracts = parseDocumentImages(t.contractImagesJson);
                       const hasCccdPhotos = Boolean(t.cccdFrontUrl || t.cccdBackUrl);
                       const totalDocs =
+                        (t.avatarUrl ? 1 : 0) +
                         (t.cccdFrontUrl ? 1 : 0) +
                         (t.cccdBackUrl ? 1 : 0) +
                         tContracts.length;
+                      const avatarInitial =
+                        t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
 
                       return (
                         <article
                           key={t.id}
-                          className={`rounded-xl border p-4 transition-shadow hover:shadow-md ${
+                          className={`rounded-2xl border p-4 transition-shadow hover:shadow-md ${
                             t.isRepresentative
                               ? 'border-teal-600/40 bg-teal-50/30'
                               : 'border-slate-200 bg-white'
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h5 className="font-bold text-slate-900">{t.fullName}</h5>
-                                {t.isRepresentative && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-teal-700 px-2 py-0.5 text-[10px] font-bold text-white">
-                                    <UserCheck className="h-3 w-3" aria-hidden="true" />
-                                    Đại diện
-                                  </span>
-                                )}
+                            <div className="flex items-center gap-3 min-w-0">
+                              {t.avatarUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openTenantDocumentsLightbox(t)}
+                                  className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-teal-600/80 shadow-xs"
+                                  title={`Xem ảnh đại diện & hồ sơ của ${t.fullName}`}
+                                >
+                                  <img
+                                    src={t.avatarUrl}
+                                    alt={`Ảnh đại diện của ${t.fullName}`}
+                                    width={48}
+                                    height={48}
+                                    loading="lazy"
+                                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                                  />
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTenant({ ...t })}
+                                  title="Nhấn để tải ảnh đại diện cho thành viên này"
+                                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-600 to-emerald-700 text-base font-black text-white shadow-xs hover:opacity-90"
+                                >
+                                  {avatarInitial}
+                                </button>
+                              )}
+
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <h5 className="font-bold text-slate-900 truncate">{t.fullName}</h5>
+                                  {t.isRepresentative && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-teal-700 px-2 py-0.5 text-[10px] font-bold text-white">
+                                      <UserCheck className="h-3 w-3" aria-hidden="true" />
+                                      Đại diện
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  {t.gender} • Sinh năm {t.birthYear || '—'} • {t.occupation || 'Chưa rõ nghề nghiệp'}
+                                </p>
                               </div>
-                              <p className="text-xs text-slate-500">
-                                {t.gender} • Sinh năm {t.birthYear || '—'} • {t.occupation || 'Chưa rõ nghề nghiệp'}
-                              </p>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => setEditingTenant({ ...t })}

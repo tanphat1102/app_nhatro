@@ -1161,15 +1161,41 @@ export default function NhaTroDashboardPage() {
                               <button
                                 type="button"
                                 onClick={() => roomObj && setManagingRoom(roomObj)}
-                                className="group text-left hover:underline"
+                                className="group flex items-center gap-2.5 text-left hover:underline"
                               >
+                                {rTenants.length > 0 && (
+                                  <div className="flex -space-x-1.5 shrink-0">
+                                    {rTenants.slice(0, 3).map((t) => {
+                                      const init =
+                                        t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
+                                      return t.avatarUrl ? (
+                                        <img
+                                          key={t.id}
+                                          src={t.avatarUrl}
+                                          alt={`Ảnh đại diện của ${t.fullName}`}
+                                          width={28}
+                                          height={28}
+                                          loading="lazy"
+                                          className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
+                                        />
+                                      ) : (
+                                        <span
+                                          key={t.id}
+                                          className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-[10px] font-black text-teal-800 ring-2 ring-white"
+                                        >
+                                          {init}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                                 {rTenants.length > 0 ? (
                                   <div>
                                     <div className="font-semibold text-slate-800 group-hover:text-teal-700">
                                       {rTenants.map((t) => t.fullName).join(', ')}
                                     </div>
                                     <div className="text-[11px] text-slate-500">
-                                      {rTenants.length} thành viên • Quản lý người ở
+                                      {rTenants.length} thành viên • Quản lý người ở & ảnh
                                     </div>
                                   </div>
                                 ) : isVacant ? (
@@ -1181,12 +1207,40 @@ export default function NhaTroDashboardPage() {
                                 )}
                               </button>
                             ) : (
-                              <div>
-                                <div className="font-semibold text-slate-800">
-                                  {rTenants.map((t) => t.fullName).join(', ') || (isVacant ? 'Phòng trống' : `${inv.occupantCount} người`)}
-                                </div>
-                                <div className="text-[11px] text-slate-500">
-                                  {rTenants.length} thành viên
+                              <div className="flex items-center gap-2.5">
+                                {rTenants.length > 0 && (
+                                  <div className="flex -space-x-1.5 shrink-0">
+                                    {rTenants.slice(0, 3).map((t) => {
+                                      const init =
+                                        t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
+                                      return t.avatarUrl ? (
+                                        <img
+                                          key={t.id}
+                                          src={t.avatarUrl}
+                                          alt={`Ảnh đại diện của ${t.fullName}`}
+                                          width={28}
+                                          height={28}
+                                          loading="lazy"
+                                          className="h-7 w-7 rounded-full object-cover ring-2 ring-white"
+                                        />
+                                      ) : (
+                                        <span
+                                          key={t.id}
+                                          className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-[10px] font-black text-teal-800 ring-2 ring-white"
+                                        >
+                                          {init}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                <div>
+                                  <div className="font-semibold text-slate-800">
+                                    {rTenants.map((t) => t.fullName).join(', ') || (isVacant ? 'Phòng trống' : `${inv.occupantCount} người`)}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {rTenants.length} thành viên
+                                  </div>
                                 </div>
                               </div>
                             )}
@@ -1529,6 +1583,7 @@ export default function NhaTroDashboardPage() {
                               {rTenants.map((t) => {
                                 const tContracts = parseDocumentImages(t.contractImagesJson);
                                 const docCount =
+                                  (t.avatarUrl ? 1 : 0) +
                                   (t.cccdFrontUrl ? 1 : 0) +
                                   (t.cccdBackUrl ? 1 : 0) +
                                   tContracts.length;
@@ -1542,9 +1597,20 @@ export default function NhaTroDashboardPage() {
                                   >
                                     <div className="flex items-center justify-between gap-1.5 font-bold text-slate-800">
                                       <div className="flex items-center gap-2 min-w-0">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[11px] font-black text-teal-800">
-                                          {avatarChar}
-                                        </span>
+                                        {t.avatarUrl ? (
+                                          <img
+                                            src={t.avatarUrl}
+                                            alt={`Ảnh đại diện ${t.fullName}`}
+                                            width={28}
+                                            height={28}
+                                            loading="lazy"
+                                            className="h-7 w-7 shrink-0 rounded-full object-cover border border-teal-500/60"
+                                          />
+                                        ) : (
+                                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[11px] font-black text-teal-800">
+                                            {avatarChar}
+                                          </span>
+                                        )}
                                         <span className="truncate">{t.fullName}</span>
                                         {t.isRepresentative && (
                                           <span className="shrink-0 rounded-md bg-teal-700 px-1.5 py-0.2 text-[9px] font-bold text-white">
@@ -1556,13 +1622,19 @@ export default function NhaTroDashboardPage() {
                                         {t.phone}
                                       </span>
                                     </div>
-                                    <div className="mt-1 flex items-center justify-between pl-8 text-[11px] text-slate-500">
+                                    <div className="mt-1 flex items-center justify-between pl-9 text-[11px] text-slate-500">
                                       <span className="truncate">Quê: {t.hometown || '—'}</span>
                                       {docCount > 0 ? (
                                         <button
                                           type="button"
                                           onClick={() => {
                                             const imgs: LightboxPreviewData['images'] = [];
+                                            if (t.avatarUrl) {
+                                              imgs.push({
+                                                label: `Ảnh Đại Diện — ${t.fullName}`,
+                                                dataUrl: t.avatarUrl,
+                                              });
+                                            }
                                             if (t.cccdFrontUrl) {
                                               imgs.push({
                                                 label: `CCCD Mặt Trước — ${t.fullName}`,
@@ -1583,7 +1655,7 @@ export default function NhaTroDashboardPage() {
                                               });
                                             }
                                             setLightboxPreview({
-                                              title: `Hồ Sơ CCCD & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
+                                              title: `Hồ Sơ Ảnh & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
                                               subtitle: `Số CCCD: ${t.cccd || '—'} • SĐT: ${t.phone || '—'}`,
                                               images: imgs,
                                             });
@@ -1591,7 +1663,7 @@ export default function NhaTroDashboardPage() {
                                           className="inline-flex items-center gap-1 rounded-md bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800 hover:bg-teal-200 shrink-0"
                                         >
                                           <Eye className="h-2.5 w-2.5" aria-hidden="true" />
-                                          {docCount} ảnh CCCD/HĐ
+                                          {docCount} ảnh hồ sơ
                                         </button>
                                       ) : t.vehiclePlate ? (
                                         <span className="font-mono text-slate-600 shrink-0">
@@ -1636,7 +1708,7 @@ export default function NhaTroDashboardPage() {
                     Sổ Quản Lý Hộ Khẩu / Tạm Trú Toàn Khu Trọ ({filteredTenants.length} hồ sơ)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Tra cứu nhanh theo Họ tên, SĐT, Số CCCD, Quê quán, Biển số xe và xem/tải ảnh CCCD & Hợp đồng
+                    Tra cứu nhanh theo Họ tên, SĐT, Số CCCD, Quê quán, Biển số xe và xem/tải ảnh đại diện, CCCD & Hợp đồng
                   </p>
                 </div>
 
@@ -1677,7 +1749,7 @@ export default function NhaTroDashboardPage() {
                       <th className="py-2.5 px-2">Họ và tên</th>
                       <th className="py-2.5 px-2">SĐT</th>
                       <th className="py-2.5 px-2">Số CCCD</th>
-                      <th className="py-2.5 px-2">Ảnh CCCD & Hợp đồng</th>
+                      <th className="py-2.5 px-2">Ảnh Hồ sơ (Avatar / CCCD / HĐ)</th>
                       <th className="py-2.5 px-2">Quê quán</th>
                       <th className="py-2.5 px-2">Biển số xe</th>
                       <th className="py-2.5 px-2">Tạm trú CA</th>
@@ -1690,7 +1762,10 @@ export default function NhaTroDashboardPage() {
                       const tContracts = parseDocumentImages(t.contractImagesJson);
                       const rmContracts = parseDocumentImages(rm?.contractImagesJson);
                       const hasCccd = Boolean(t.cccdFrontUrl || t.cccdBackUrl);
+                      const hasAvatar = Boolean(t.avatarUrl);
                       const totalContracts = tContracts.length + (t.isRepresentative ? rmContracts.length : 0);
+                      const avatarChar =
+                        t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
 
                       return (
                         <tr
@@ -1701,30 +1776,56 @@ export default function NhaTroDashboardPage() {
                             Phòng {rm?.roomNumber || '?'}
                           </th>
                           <td className="py-2.5 px-2 font-semibold text-slate-900">
-                            {t.fullName}{' '}
-                            {t.isRepresentative && (
-                              <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800">
-                                Đại diện
-                              </span>
-                            )}
-                            {!t.isActive && (
-                              <span className="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
-                                Đã chuyển đi
-                              </span>
-                            )}
-                            <div className="text-[10px] font-normal text-slate-500">
-                              {t.birthYear} ({t.gender}) • {t.occupation || '—'}
+                            <div className="flex items-center gap-2.5">
+                              {t.avatarUrl ? (
+                                <img
+                                  src={t.avatarUrl}
+                                  alt={`Ảnh đại diện ${t.fullName}`}
+                                  width={36}
+                                  height={36}
+                                  loading="lazy"
+                                  className="h-9 w-9 shrink-0 rounded-full object-cover border border-teal-500/60 shadow-2xs"
+                                />
+                              ) : (
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-100 text-xs font-black text-teal-800">
+                                  {avatarChar}
+                                </span>
+                              )}
+                              <div>
+                                <div>
+                                  {t.fullName}{' '}
+                                  {t.isRepresentative && (
+                                    <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800">
+                                      Đại diện
+                                    </span>
+                                  )}
+                                  {!t.isActive && (
+                                    <span className="ml-1 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
+                                      Đã chuyển đi
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] font-normal text-slate-500">
+                                  {t.birthYear} ({t.gender}) • {t.occupation || '—'}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="py-2.5 px-2 font-mono">{t.phone || '—'}</td>
                           <td className="py-2.5 px-2 font-mono">{t.cccd || '—'}</td>
                           <td className="py-2.5 px-2">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {hasCccd || totalContracts > 0 ? (
+                              {hasAvatar || hasCccd || totalContracts > 0 ? (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     const imgs: LightboxPreviewData['images'] = [];
+                                    if (t.avatarUrl) {
+                                      imgs.push({
+                                        label: `Ảnh Đại Diện — ${t.fullName}`,
+                                        dataUrl: t.avatarUrl,
+                                      });
+                                    }
                                     if (t.cccdFrontUrl) {
                                       imgs.push({
                                         label: `CCCD Mặt Trước — ${t.fullName}`,
@@ -1754,7 +1855,7 @@ export default function NhaTroDashboardPage() {
                                       }
                                     }
                                     setLightboxPreview({
-                                      title: `Hồ Sơ Ảnh CCCD & Hợp Đồng — ${t.fullName}`,
+                                      title: `Hồ Sơ Ảnh Đại Diện, CCCD & Hợp Đồng — ${t.fullName}`,
                                       subtitle: `Phòng ${rm?.roomNumber || '?'} • Số CCCD: ${t.cccd || '—'}`,
                                       images: imgs,
                                     });
@@ -1762,13 +1863,17 @@ export default function NhaTroDashboardPage() {
                                   className="inline-flex items-center gap-1 rounded-lg bg-teal-100 px-2 py-1 text-[11px] font-bold text-teal-900 hover:bg-teal-200"
                                 >
                                   <Eye className="h-3 w-3" aria-hidden="true" />
-                                  {t.cccdFrontUrl && t.cccdBackUrl
-                                    ? 'CCCD 2 mặt'
-                                    : hasCccd
-                                    ? 'CCCD 1 mặt'
-                                    : ''}
-                                  {hasCccd && totalContracts > 0 ? ' + ' : ''}
-                                  {totalContracts > 0 ? `${totalContracts} ảnh HĐ` : ''}
+                                  {[
+                                    hasAvatar ? 'Avatar' : '',
+                                    t.cccdFrontUrl && t.cccdBackUrl
+                                      ? 'CCCD 2 mặt'
+                                      : hasCccd
+                                      ? 'CCCD 1 mặt'
+                                      : '',
+                                    totalContracts > 0 ? `${totalContracts} ảnh HĐ` : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' + ')}
                                 </button>
                               ) : currentUser?.role !== 'TENANT' ? (
                                 <button
@@ -1777,7 +1882,7 @@ export default function NhaTroDashboardPage() {
                                   className="inline-flex items-center gap-1 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
                                 >
                                   <CreditCard className="h-3 w-3" aria-hidden="true" />
-                                  + Tải CCCD / HĐ
+                                  + Tải Avatar / CCCD
                                 </button>
                               ) : (
                                 <span className="text-[11px] text-slate-400">Chưa có ảnh</span>

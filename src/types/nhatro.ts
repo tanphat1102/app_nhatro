@@ -88,6 +88,7 @@ export interface Tenant {
   tempResidenceStatus: 'REGISTERED' | 'PENDING' | 'EXPIRED';
   isActive: boolean;
   notes: string;
+  avatarUrl: string;
   cccdFrontUrl: string;
   cccdBackUrl: string;
   contractImagesJson: string;
