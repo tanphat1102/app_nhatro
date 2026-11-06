@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { BillingMode, Invoice, Property, Room, Tenant } from '@/types/nhatro';
+import { BillingMode, Invoice, Property, Room, Tenant, User, UserRole } from '@/types/nhatro';
 import { InvoiceReceiptModal, formatVND } from '@/components/InvoiceReceiptModal';
 import { InvoiceEditModal } from '@/components/InvoiceEditModal';
 import { RoomTenantsModal } from '@/components/RoomTenantsModal';
+import { LoginModal } from '@/components/LoginModal';
+import { UserManagementModal } from '@/components/UserManagementModal';
+import { TenantPortal } from '@/components/TenantPortal';
 import { ModalDialog } from '@/components/ModalDialog';
 import * as XLSX from 'xlsx';
 import {
@@ -18,6 +21,10 @@ import {
   Edit,
   FileSpreadsheet,
   Home,
+  KeyRound,
+  Lock,
+  LogIn,
+  LogOut,
   Plus,
   QrCode,
   RefreshCw,
@@ -25,6 +32,8 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  UserCheck,
+  UserCog,
   UserPlus,
   Users,
   Wallet,
@@ -37,7 +46,14 @@ export default function NhaTroDashboardPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Authentication & Role state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [userManagementModalOpen, setUserManagementModalOpen] = useState(false);
+  const [tenantPortalMode, setTenantPortalMode] = useState(true);
 
   const [selectedPropertyId, setSelectedPropertyId] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'billing' | 'rooms_tenants' | 'settings' | 'audit'>('billing');
@@ -84,18 +100,53 @@ export default function NhaTroDashboardPage() {
     rooms: Room[];
     tenants: Tenant[];
     invoices: Invoice[];
+    users?: User[];
   }) => {
     setProperties(data.properties);
     setRooms(data.rooms);
     setTenants(data.tenants);
     setInvoices(data.invoices);
+    if (data.users) {
+      setUsers(data.users);
+    }
   }, []);
+
+  const handleSetUser = (u: User | null) => {
+    setCurrentUser(u);
+    if (u) {
+      localStorage.setItem('nhatro_current_user', JSON.stringify(u));
+      if (u.role === 'TENANT') {
+        setTenantPortalMode(true);
+        if (u.propertyId) {
+          setSelectedPropertyId(u.propertyId);
+        }
+      }
+    } else {
+      localStorage.removeItem('nhatro_current_user');
+    }
+  };
 
   useEffect(() => {
     fetch('/api/nhatro')
       .then((res) => res.json())
       .then((data) => {
         applyData(data);
+        if (data.users && data.users.length > 0) {
+          setUsers(data.users);
+          const stored = localStorage.getItem('nhatro_current_user');
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              const found = data.users.find((u: User) => u.id === parsed.id) || parsed;
+              setCurrentUser(found);
+            } catch {
+              setCurrentUser(data.users[0]);
+            }
+          } else {
+            const admin = data.users.find((u: User) => u.role === 'ADMIN') || data.users[0];
+            setCurrentUser(admin);
+          }
+        }
         if (data.properties?.length > 0) {
           setSelectedPropertyId(data.properties[0].id);
         }
@@ -269,6 +320,29 @@ export default function NhaTroDashboardPage() {
       month: m,
       year: y,
     });
+  };
+
+  const handleSaveUser = async (data: {
+    id?: number;
+    username: string;
+    fullName: string;
+    role: UserRole;
+    phone?: string;
+    email?: string;
+    propertyId?: number | null;
+    roomId?: number | null;
+    password?: string;
+    newPassword?: string;
+  }) => {
+    if (data.id) {
+      await postAction({ action: 'update_user', user: data });
+    } else {
+      await postAction({ action: 'create_user', user: data });
+    }
+  };
+
+  const handleDeleteUser = async (id: number) => {
+    await postAction({ action: 'delete_user', id });
   };
 
   const handleExportExcel = () => {
@@ -496,15 +570,20 @@ export default function NhaTroDashboardPage() {
     <div className="min-h-screen flex flex-col">
       {/* Top Header */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-700 text-white shadow-md">
               <Building2 className="h-6 w-6" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-lg font-black tracking-tight text-slate-900 sm:text-xl">
-                Quản Lý Nhà Trọ Thông Minh
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-black tracking-tight text-slate-900 sm:text-xl">
+                  Quản Lý Nhà Trọ Thông Minh
+                </h1>
+                <span className="hidden sm:inline-block rounded-md bg-teal-50 px-2 py-0.5 text-[10px] font-extrabold text-teal-800 border border-teal-200">
+                  v2.0 Roles & VietQR
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
                 Chủ nhà: <strong>{currentProperty.bankAccountHolder}</strong> • Vietcombank:{' '}
                 <span className="font-mono font-semibold text-teal-800">
@@ -514,9 +593,92 @@ export default function NhaTroDashboardPage() {
             </div>
           </div>
 
-          {/* Property Switcher */}
+          {/* User Auth & Profile Badge */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            {currentUser ? (
+              <div className="flex items-center gap-1.5 sm:gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-2xs">
+                <div
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-bold ${
+                    currentUser.role === 'ADMIN'
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : currentUser.role === 'MANAGER'
+                      ? 'bg-sky-100 text-sky-900 border border-sky-300'
+                      : 'bg-purple-100 text-purple-900 border border-purple-300'
+                  }`}
+                >
+                  {currentUser.role === 'ADMIN' ? (
+                    <>👑 Chủ nhà</>
+                  ) : currentUser.role === 'MANAGER' ? (
+                    <>👔 Quản lý</>
+                  ) : (
+                    <>👤 Khách thuê</>
+                  )}
+                  <span className="font-normal text-slate-400">|</span>
+                  <span className="max-w-[120px] truncate">{currentUser.fullName}</span>
+                </div>
+
+                {currentUser.role === 'ADMIN' && (
+                  <button
+                    type="button"
+                    onClick={() => setUserManagementModalOpen(true)}
+                    title="Quản lý tài khoản người dùng"
+                    className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 shadow-2xs"
+                  >
+                    <UserCog className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    <span>Tài khoản ({users.length})</span>
+                  </button>
+                )}
+
+                {currentUser.role === 'TENANT' && (
+                  <button
+                    type="button"
+                    onClick={() => setTenantPortalMode(!tenantPortalMode)}
+                    className="inline-flex items-center gap-1 rounded-xl bg-purple-700 px-2.5 py-1 text-xs font-bold text-white hover:bg-purple-800 shadow-2xs"
+                  >
+                    {tenantPortalMode ? 'Xem bảng tổng quan' : 'Cổng Khách thuê'}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setLoginModalOpen(true)}
+                  title="Đổi vai trò / Đăng nhập khác"
+                  className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  <KeyRound className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                  <span className="hidden sm:inline">Đổi vai trò</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSetUser(null);
+                    setLoginModalOpen(true);
+                  }}
+                  title="Đăng xuất"
+                  className="rounded-xl p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                  aria-label="Đăng xuất"
+                >
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setLoginModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-800"
+              >
+                <LogIn className="h-4 w-4" aria-hidden="true" />
+                Đăng Nhập
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Property Switcher Bar */}
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 sm:px-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Khu trọ:
             </span>
             {properties.map((prop) => {
@@ -526,9 +688,9 @@ export default function NhaTroDashboardPage() {
                   key={prop.id}
                   type="button"
                   onClick={() => setSelectedPropertyId(prop.id)}
-                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
                     isSelected
-                      ? 'bg-slate-900 text-white shadow-sm'
+                      ? 'bg-slate-900 text-white shadow-xs'
                       : 'border border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
@@ -544,20 +706,31 @@ export default function NhaTroDashboardPage() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => setNewPropModalOpen(true)}
-              className="inline-flex items-center gap-1 rounded-xl border border-dashed border-teal-600 px-3 py-2 text-xs font-bold text-teal-800 hover:bg-teal-50"
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              Thêm khu trọ
-            </button>
+            {currentUser?.role === 'ADMIN' && (
+              <button
+                type="button"
+                onClick={() => setNewPropModalOpen(true)}
+                className="inline-flex items-center gap-1 rounded-xl border border-dashed border-teal-600 px-2.5 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                Thêm khu trọ
+              </button>
+            )}
           </div>
+
+          {currentUser?.role === 'TENANT' && (
+            <div className="text-xs text-purple-700 font-semibold bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+              {tenantPortalMode
+                ? 'Đang hiển thị Cổng riêng của bạn'
+                : 'Đang xem Bảng tổng quan (Chỉ đọc)'}
+            </div>
+          )}
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <nav aria-label="Chức năng chính" className="flex flex-wrap gap-1 border-t border-slate-100 pt-2">
+        {(!currentUser || currentUser.role !== 'TENANT' || !tenantPortalMode) && (
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <nav aria-label="Chức năng chính" className="flex flex-wrap gap-1 border-t border-slate-100 pt-2">
             {(
               [
                 {
@@ -613,65 +786,103 @@ export default function NhaTroDashboardPage() {
             })}
           </nav>
         </div>
+        )}
       </header>
 
       {/* Main Content */}
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 space-y-6">
-        {/* Property Context Banner */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-lg bg-teal-100 px-2.5 py-0.5 text-xs font-bold text-teal-900">
-                  {currentProperty.name}
-                </span>
-                <span className="text-xs text-slate-600">📍 {currentProperty.address}</span>
+        {currentUser?.role === 'TENANT' && tenantPortalMode ? (
+          <TenantPortal
+            user={currentUser}
+            property={currentProperty}
+            room={rooms.find((r) => r.id === currentUser.roomId) || null}
+            tenants={tenants}
+            invoices={invoices}
+            onOpenReceipt={(inv) => setReceiptInvoice(inv)}
+            onViewAllBoard={() => setTenantPortalMode(false)}
+          />
+        ) : (
+          <>
+            {currentUser?.role === 'TENANT' && !tenantPortalMode && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple-200 bg-purple-50 p-4 text-purple-900 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-200 text-purple-900">
+                    <UserCheck className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold">Chế độ xem Bảng tổng quan (Khách thuê - Chỉ đọc)</h2>
+                    <p className="text-xs text-purple-700">
+                      Bạn đang xem tổng thể số liệu khu trọ. Nhấn để quay lại Cổng phòng riêng của bạn để xem hóa đơn & quét mã VietQR.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTenantPortalMode(true)}
+                  className="rounded-xl bg-purple-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-purple-800 transition-colors"
+                >
+                  ← Quay lại Cổng Khách Thuê
+                </button>
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 pt-1">
-                <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-900 border border-amber-200">
-                  <Zap className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                  Điện: {formatVND(currentProperty.electricityRate)} đ/KW (Theo đồng hồ)
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-1 font-semibold text-sky-900 border border-sky-200">
-                  <Droplets className="h-3.5 w-3.5 text-sky-600" aria-hidden="true" />
-                  Nước:{' '}
-                  {currentProperty.waterMode === 'BY_METER'
-                    ? `${formatVND(currentProperty.waterRate)} đ/m³ (Theo chỉ số đồng hồ)`
-                    : currentProperty.waterMode === 'PER_PERSON'
-                    ? `${formatVND(currentProperty.waterRate)} đ/người (Theo đầu người trong phòng)`
-                    : `${formatVND(currentProperty.waterRate)} đ/phòng`}
-                </span>
-                <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                  Rác: {formatVND(currentProperty.trashRate)} đ/tháng
-                </span>
-                {currentProperty.lightingRate > 0 && currentProperty.lightingMode !== 'FREE' && (
-                  <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                    Đèn VS: {formatVND(currentProperty.lightingRate)} đ/tháng
-                  </span>
-                )}
-              </div>
-            </div>
+            )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setNewSheetModalOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-800 transition-colors"
-              >
-                <CalendarPlus className="h-4 w-4" aria-hidden="true" />
-                Lập bảng thu tiền tháng mới
-              </button>
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-colors"
-              >
-                <Download className="h-4 w-4 text-teal-700" aria-hidden="true" />
-                Xuất Excel (.xlsx)
-              </button>
-            </div>
-          </div>
-        </section>
+            {/* Property Context Banner */}
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-lg bg-teal-100 px-2.5 py-0.5 text-xs font-bold text-teal-900">
+                      {currentProperty.name}
+                    </span>
+                    <span className="text-xs text-slate-600">📍 {currentProperty.address}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 pt-1">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-900 border border-amber-200">
+                      <Zap className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                      Điện: {formatVND(currentProperty.electricityRate)} đ/KW (Theo đồng hồ)
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-1 font-semibold text-sky-900 border border-sky-200">
+                      <Droplets className="h-3.5 w-3.5 text-sky-600" aria-hidden="true" />
+                      Nước:{' '}
+                      {currentProperty.waterMode === 'BY_METER'
+                        ? `${formatVND(currentProperty.waterRate)} đ/m³ (Theo chỉ số đồng hồ)`
+                        : currentProperty.waterMode === 'PER_PERSON'
+                        ? `${formatVND(currentProperty.waterRate)} đ/người (Theo đầu người trong phòng)`
+                        : `${formatVND(currentProperty.waterRate)} đ/phòng`}
+                    </span>
+                    <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
+                      Rác: {formatVND(currentProperty.trashRate)} đ/tháng
+                    </span>
+                    {currentProperty.lightingRate > 0 && currentProperty.lightingMode !== 'FREE' && (
+                      <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
+                        Đèn VS: {formatVND(currentProperty.lightingRate)} đ/tháng
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {currentUser?.role !== 'TENANT' && (
+                    <button
+                      type="button"
+                      onClick={() => setNewSheetModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-800 transition-colors"
+                    >
+                      <CalendarPlus className="h-4 w-4" aria-hidden="true" />
+                      Lập bảng thu tiền tháng mới
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-colors"
+                  >
+                    <Download className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                    Xuất Excel (.xlsx)
+                  </button>
+                </div>
+              </div>
+            </section>
 
         {/* TAB 1: BILLING SHEET */}
         {activeTab === 'billing' && (
@@ -880,28 +1091,39 @@ export default function NhaTroDashboardPage() {
 
                           {/* Tenants in Room */}
                           <td className="py-3 px-2">
-                            <button
-                              type="button"
-                              onClick={() => roomObj && setManagingRoom(roomObj)}
-                              className="group text-left hover:underline"
-                            >
-                              {rTenants.length > 0 ? (
-                                <div>
-                                  <div className="font-semibold text-slate-800 group-hover:text-teal-700">
-                                    {rTenants.map((t) => t.fullName).join(', ')}
+                            {currentUser?.role !== 'TENANT' ? (
+                              <button
+                                type="button"
+                                onClick={() => roomObj && setManagingRoom(roomObj)}
+                                className="group text-left hover:underline"
+                              >
+                                {rTenants.length > 0 ? (
+                                  <div>
+                                    <div className="font-semibold text-slate-800 group-hover:text-teal-700">
+                                      {rTenants.map((t) => t.fullName).join(', ')}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500">
+                                      {rTenants.length} thành viên • Quản lý người ở
+                                    </div>
                                   </div>
-                                  <div className="text-[11px] text-slate-500">
-                                    {rTenants.length} thành viên • Nhấn để quản lý người ở
-                                  </div>
+                                ) : isVacant ? (
+                                  <span className="italic text-slate-400">Phòng trống — Thêm khách</span>
+                                ) : (
+                                  <span className="text-xs text-teal-700 font-semibold">
+                                    {inv.occupantCount} người • + Thêm hồ sơ
+                                  </span>
+                                )}
+                              </button>
+                            ) : (
+                              <div>
+                                <div className="font-semibold text-slate-800">
+                                  {rTenants.map((t) => t.fullName).join(', ') || (isVacant ? 'Phòng trống' : `${inv.occupantCount} người`)}
                                 </div>
-                              ) : isVacant ? (
-                                <span className="italic text-slate-400">Phòng trống — Nhấn thêm khách</span>
-                              ) : (
-                                <span className="text-xs text-teal-700 font-semibold">
-                                  {inv.occupantCount} người • + Thêm hồ sơ
-                                </span>
-                              )}
-                            </button>
+                                <div className="text-[11px] text-slate-500">
+                                  {rTenants.length} thành viên
+                                </div>
+                              </div>
+                            )}
                           </td>
 
                           {/* Electricity Index */}
@@ -996,27 +1218,49 @@ export default function NhaTroDashboardPage() {
 
                           {/* Payment Status Button */}
                           <td className="py-3 px-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleQuickPaymentToggle(inv)}
-                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
-                                inv.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            {currentUser?.role === 'TENANT' ? (
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                  inv.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : inv.paymentStatus === 'PARTIAL'
+                                    ? 'bg-amber-100 text-amber-900'
+                                    : inv.paymentStatus === 'VACANT'
+                                    ? 'bg-slate-200 text-slate-600'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {inv.paymentStatus === 'PAID'
+                                  ? '✓ Đã thu'
                                   : inv.paymentStatus === 'PARTIAL'
-                                  ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                                  ? `Thu 1 phần (${formatVND(inv.paidAmount)})`
                                   : inv.paymentStatus === 'VACANT'
-                                  ? 'bg-slate-200 text-slate-600'
-                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
-                              }`}
-                            >
-                              {inv.paymentStatus === 'PAID'
-                                ? '✓ Đã thu'
-                                : inv.paymentStatus === 'PARTIAL'
-                                ? `Thu 1 phần (${formatVND(inv.paidAmount)})`
-                                : inv.paymentStatus === 'VACANT'
-                                ? 'Phòng trống'
-                                : 'Chưa đóng'}
-                            </button>
+                                  ? 'Phòng trống'
+                                  : 'Chưa đóng'}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickPaymentToggle(inv)}
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                                  inv.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                    : inv.paymentStatus === 'PARTIAL'
+                                    ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                                    : inv.paymentStatus === 'VACANT'
+                                    ? 'bg-slate-200 text-slate-600'
+                                    : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                }`}
+                              >
+                                {inv.paymentStatus === 'PAID'
+                                  ? '✓ Đã thu'
+                                  : inv.paymentStatus === 'PARTIAL'
+                                  ? `Thu 1 phần (${formatVND(inv.paidAmount)})`
+                                  : inv.paymentStatus === 'VACANT'
+                                  ? 'Phòng trống'
+                                  : 'Chưa đóng'}
+                              </button>
+                            )}
                           </td>
 
                           {/* Action Buttons */}
@@ -1031,15 +1275,17 @@ export default function NhaTroDashboardPage() {
                                 <QrCode className="h-3.5 w-3.5" aria-hidden="true" />
                                 Phiếu
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingInvoice(inv)}
-                                aria-label={`Chỉnh sửa hóa đơn Phòng ${inv.roomNumber}`}
-                                className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                              >
-                                <Edit className="h-3.5 w-3.5" aria-hidden="true" />
-                                Sửa
-                              </button>
+                              {currentUser?.role !== 'TENANT' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingInvoice(inv)}
+                                  aria-label={`Chỉnh sửa hóa đơn Phòng ${inv.roomNumber}`}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                                >
+                                  <Edit className="h-3.5 w-3.5" aria-hidden="true" />
+                                  Sửa
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1221,14 +1467,16 @@ export default function NhaTroDashboardPage() {
                       <span className="text-[11px] text-slate-500">
                         Cọc: {formatVND(room.depositAmount)}đ
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setManagingRoom(room)}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
-                      >
-                        <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                        Quản lý người ở & Phòng
-                      </button>
+                      {currentUser?.role !== 'TENANT' && (
+                        <button
+                          type="button"
+                          onClick={() => setManagingRoom(room)}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+                        >
+                          <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                          Quản lý người ở & Phòng
+                        </button>
+                      )}
                     </div>
                   </article>
                 );
@@ -1344,13 +1592,17 @@ export default function NhaTroDashboardPage() {
                             </span>
                           </td>
                           <td className="py-2.5 pl-2 pr-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => rm && setManagingRoom(rm)}
-                              className="font-bold text-teal-700 hover:underline"
-                            >
-                              Chi tiết
-                            </button>
+                            {currentUser?.role !== 'TENANT' ? (
+                              <button
+                                type="button"
+                                onClick={() => rm && setManagingRoom(rm)}
+                                className="font-bold text-teal-700 hover:underline"
+                              >
+                                Chi tiết
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1373,6 +1625,19 @@ export default function NhaTroDashboardPage() {
               <strong>Theo đầu người đang ở</strong>, <strong>Cố định theo phòng</strong> hoặc{' '}
               <strong>Theo số lượng xe</strong>.
             </p>
+
+            {currentUser?.role === 'TENANT' && (
+              <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-3.5 text-xs font-semibold text-purple-900 flex items-center gap-2">
+                <Lock className="h-4 w-4 text-purple-700 shrink-0" />
+                <span>Bạn đang xem cấu hình khu trọ dưới quyền Khách thuê (Chỉ đọc).</span>
+              </div>
+            )}
+            {currentUser?.role === 'MANAGER' && (
+              <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-3.5 text-xs font-semibold text-sky-900 flex items-center gap-2">
+                <Lock className="h-4 w-4 text-sky-700 shrink-0" />
+                <span>Quản lý có thể cập nhật biểu phí, nhưng chỉ Chủ nhà (Admin) mới có quyền chỉnh sửa tài khoản ngân hàng thụ hưởng VietQR.</span>
+              </div>
+            )}
 
             <form
               onSubmit={async (e) => {
@@ -1399,9 +1664,12 @@ export default function NhaTroDashboardPage() {
                       id="pf-name"
                       type="text"
                       required
+                      disabled={currentUser?.role !== 'ADMIN'}
                       value={propForm.name}
                       onChange={(e) => setPropForm({ ...propForm, name: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold ${
+                        currentUser?.role !== 'ADMIN' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                   <div>
@@ -1412,46 +1680,58 @@ export default function NhaTroDashboardPage() {
                       id="pf-address"
                       type="text"
                       required
+                      disabled={currentUser?.role !== 'ADMIN'}
                       value={propForm.address}
                       onChange={(e) => setPropForm({ ...propForm, address: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ${
+                        currentUser?.role !== 'ADMIN' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                   <div>
                     <label htmlFor="pf-bank" className="block text-xs font-semibold text-slate-700 mb-1">
-                      Ngân hàng
+                      Ngân hàng {currentUser?.role !== 'ADMIN' && '(Chỉ Admin đổi)'}
                     </label>
                     <input
                       id="pf-bank"
                       type="text"
+                      disabled={currentUser?.role !== 'ADMIN'}
                       value={propForm.bankName}
                       onChange={(e) => setPropForm({ ...propForm, bankName: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ${
+                        currentUser?.role !== 'ADMIN' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                   <div>
                     <label htmlFor="pf-acc" className="block text-xs font-semibold text-slate-700 mb-1">
-                      Số tài khoản ngân hàng
+                      Số tài khoản ngân hàng {currentUser?.role !== 'ADMIN' && '(Chỉ Admin đổi)'}
                     </label>
                     <input
                       id="pf-acc"
                       type="text"
                       inputMode="numeric"
+                      disabled={currentUser?.role !== 'ADMIN'}
                       value={propForm.bankAccountNumber}
                       onChange={(e) => setPropForm({ ...propForm, bankAccountNumber: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono font-bold ${
+                        currentUser?.role !== 'ADMIN' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                   <div>
                     <label htmlFor="pf-holder" className="block text-xs font-semibold text-slate-700 mb-1">
-                      Chủ tài khoản
+                      Chủ tài khoản {currentUser?.role !== 'ADMIN' && '(Chỉ Admin đổi)'}
                     </label>
                     <input
                       id="pf-holder"
                       type="text"
+                      disabled={currentUser?.role !== 'ADMIN'}
                       value={propForm.bankAccountHolder}
                       onChange={(e) => setPropForm({ ...propForm, bankAccountHolder: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold ${
+                        currentUser?.role !== 'ADMIN' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                   <div>
@@ -1461,9 +1741,12 @@ export default function NhaTroDashboardPage() {
                     <input
                       id="pf-paynote"
                       type="text"
+                      disabled={currentUser?.role === 'TENANT'}
                       value={propForm.paymentNote}
                       onChange={(e) => setPropForm({ ...propForm, paymentNote: e.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className={`w-full rounded-lg border border-slate-300 px-3 py-2 text-sm ${
+                        currentUser?.role === 'TENANT' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                      }`}
                     />
                   </div>
                 </div>
@@ -1707,16 +1990,18 @@ export default function NhaTroDashboardPage() {
                 </div>
               </fieldset>
 
-              <div className="flex justify-end">
-                <button
-                  type="submit"
-                  disabled={savingSettings}
-                  className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-teal-800"
-                >
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                  {savingSettings ? 'Đang lưu cấu hình...' : 'Lưu Cấu Hình Khu Trọ'}
-                </button>
-              </div>
+              {currentUser?.role !== 'TENANT' && (
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-teal-800"
+                  >
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                    {savingSettings ? 'Đang lưu cấu hình...' : 'Lưu Cấu Hình Khu Trọ'}
+                  </button>
+                </div>
+              )}
             </form>
           </div>
         )}
@@ -1774,7 +2059,9 @@ export default function NhaTroDashboardPage() {
             </div>
           </div>
         )}
-      </main>
+      </>
+    )}
+  </main>
 
       {/* Modals */}
       <InvoiceReceiptModal
@@ -2010,6 +2297,25 @@ export default function NhaTroDashboardPage() {
           </div>
         </form>
       </ModalDialog>
+
+      {/* Login & Role Switching Modal */}
+      <LoginModal
+        open={loginModalOpen}
+        onClose={() => setLoginModalOpen(false)}
+        onSuccess={handleSetUser}
+      />
+
+      {/* User Management Modal (Admin only) */}
+      <UserManagementModal
+        open={userManagementModalOpen}
+        onClose={() => setUserManagementModalOpen(false)}
+        users={users}
+        properties={properties}
+        rooms={rooms}
+        currentUser={currentUser}
+        onSaveUser={handleSaveUser}
+        onDeleteUser={handleDeleteUser}
+      />
     </div>
   );
 }

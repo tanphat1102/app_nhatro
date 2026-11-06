@@ -119,3 +119,24 @@ export interface Invoice {
   paymentMethod: 'CASH' | 'TRANSFER';
   note: string;
 }
+
+export type UserRole = 'ADMIN' | 'MANAGER' | 'TENANT';
+
+export interface User {
+  id: number;
+  username: string;
+  fullName: string;
+  role: UserRole;
+  phone: string;
+  email: string;
+  propertyId: number | null;
+  roomId: number | null;
+  tenantId: number | null;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  user: User;
+  token?: string;
+}
+

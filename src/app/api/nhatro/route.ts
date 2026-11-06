@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllData, getDb } from '@/lib/db';
+import {
+  getAllData,
+  getDb,
+  createUser,
+  updateUser,
+  deleteUser,
+  findUserByUsernameOrPhone,
+  verifyPassword,
+} from '@/lib/db';
 import { BillingMode, ExtraFeeItem } from '@/types/nhatro';
 
 function calcFeeByMode(
@@ -642,6 +650,79 @@ export async function POST(req: NextRequest) {
         `).run(occ, veh, waterAmount, wifiAmount, parkingAmount, totalAmount, Number(inv.id));
       }
 
+      return NextResponse.json(getAllData());
+    }
+
+    if (action === 'login') {
+      const { username, password } = body;
+      if (!username || !password) {
+        return NextResponse.json(
+          { error: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu' },
+          { status: 400 }
+        );
+      }
+      const userWithHash = findUserByUsernameOrPhone(username);
+      if (!userWithHash) {
+        return NextResponse.json(
+          { error: 'Tài khoản hoặc số điện thoại không tồn tại' },
+          { status: 401 }
+        );
+      }
+      if (!verifyPassword(password, userWithHash.passwordHash)) {
+        return NextResponse.json(
+          { error: 'Mật khẩu không chính xác' },
+          { status: 401 }
+        );
+      }
+      const { passwordHash: _, ...safeUser } = userWithHash;
+      return NextResponse.json({ success: true, user: safeUser });
+    }
+
+    if (action === 'create_user') {
+      const u = body.user;
+      if (!u.username || !u.password || !u.fullName) {
+        return NextResponse.json(
+          { error: 'Vui lòng điền tên đăng nhập, mật khẩu và họ tên' },
+          { status: 400 }
+        );
+      }
+      try {
+        createUser({
+          username: u.username,
+          password: u.password,
+          fullName: u.fullName,
+          role: u.role || 'TENANT',
+          phone: u.phone,
+          email: u.email,
+          propertyId: u.propertyId ? Number(u.propertyId) : null,
+          roomId: u.roomId ? Number(u.roomId) : null,
+          tenantId: u.tenantId ? Number(u.tenantId) : null,
+        });
+        return NextResponse.json(getAllData());
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Lỗi khi tạo tài khoản';
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
+
+    if (action === 'update_user') {
+      const u = body.user;
+      updateUser(Number(u.id), {
+        fullName: u.fullName,
+        role: u.role,
+        phone: u.phone,
+        email: u.email,
+        propertyId: u.propertyId ? Number(u.propertyId) : null,
+        roomId: u.roomId ? Number(u.roomId) : null,
+        tenantId: u.tenantId ? Number(u.tenantId) : null,
+        newPassword: u.newPassword || undefined,
+      });
+      return NextResponse.json(getAllData());
+    }
+
+    if (action === 'delete_user') {
+      const { id } = body;
+      deleteUser(Number(id));
       return NextResponse.json(getAllData());
     }
 

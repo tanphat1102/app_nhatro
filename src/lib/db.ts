@@ -1,11 +1,20 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
-import { BillingMode, Invoice, Property, Room, Tenant } from '@/types/nhatro';
+import crypto from 'node:crypto';
+import { BillingMode, Invoice, Property, Room, Tenant, User, UserRole } from '@/types/nhatro';
 
 const IS_VERCEL = Boolean(process.env.VERCEL);
 const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'nhatro.db');
+
+export function hashPassword(password: string): string {
+  return crypto.pbkdf2Sync(password, 'nhatro_salt_2026', 1000, 32, 'sha256').toString('hex');
+}
+
+export function verifyPassword(password: string, hash: string): boolean {
+  return hashPassword(password) === hash;
+}
 
 let dbInstance: DatabaseSync | null = null;
 
@@ -24,6 +33,7 @@ export function getDb(): DatabaseSync {
 
   initSchema(db);
   seedIfEmpty(db);
+  seedUsersIfEmpty(db);
 
   dbInstance = db;
   return db;
@@ -138,6 +148,23 @@ function initSchema(db: DatabaseSync) {
       UNIQUE(property_id, room_id, month, year),
       FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'TENANT',
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      property_id INTEGER,
+      room_id INTEGER,
+      tenant_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+      FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
     );
   `);
 }
@@ -526,6 +553,248 @@ function seedIfEmpty(db: DatabaseSync) {
   }
 }
 
+export function seedUsersIfEmpty(db: DatabaseSync) {
+  const insertUser = db.prepare(`
+    INSERT OR IGNORE INTO users (username, password_hash, full_name, role, phone, email, property_id, room_id, tenant_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  // 1. Admin (Chủ nhà)
+  insertUser.run(
+    'admin',
+    hashPassword('admin123'),
+    'Đặng Thị Thu Thảo (Chủ nhà)',
+    'ADMIN',
+    '0901234567',
+    'chutro@nhatro.com',
+    null,
+    null,
+    null
+  );
+
+  // 2. Manager (Quản lý)
+  insertUser.run(
+    'quanly',
+    hashPassword('quanly123'),
+    'Trần Văn Quản Lý',
+    'MANAGER',
+    '0909888999',
+    'quanly@nhatro.com',
+    null,
+    null,
+    null
+  );
+
+  // 3. Khách thuê (Tenants)
+  try {
+    const tenants = db
+      .prepare("SELECT id, property_id, room_id, full_name, phone FROM tenants WHERE length(trim(COALESCE(phone, ''))) > 0")
+      .all() as Record<string, unknown>[];
+    for (const t of tenants) {
+      const phone = String(t.phone || '').trim();
+      if (!phone) continue;
+      try {
+        insertUser.run(
+          phone,
+          hashPassword('123456'),
+          String(t.full_name),
+          'TENANT',
+          phone,
+          '',
+          Number(t.property_id),
+          Number(t.room_id),
+          Number(t.id)
+        );
+      } catch {
+        // Skip duplicate username if any
+      }
+    }
+  } catch (err) {
+    console.error('Error seeding tenant users:', err);
+  }
+}
+
+export function getAllUsers(): User[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, username, full_name, role, phone, email, property_id, room_id, tenant_id, created_at
+    FROM users
+    ORDER BY CASE role WHEN 'ADMIN' THEN 1 WHEN 'MANAGER' THEN 2 ELSE 3 END, id ASC
+  `).all() as Record<string, unknown>[];
+
+  return rows.map((u) => ({
+    id: Number(u.id),
+    username: String(u.username),
+    fullName: String(u.full_name),
+    role: String(u.role) as UserRole,
+    phone: String(u.phone || ''),
+    email: String(u.email || ''),
+    propertyId: u.property_id !== null ? Number(u.property_id) : null,
+    roomId: u.room_id !== null ? Number(u.room_id) : null,
+    tenantId: u.tenant_id !== null ? Number(u.tenant_id) : null,
+    createdAt: String(u.created_at || ''),
+  }));
+}
+
+export function findUserByUsernameOrPhone(identifier: string): (User & { passwordHash: string }) | null {
+  const db = getDb();
+  const clean = identifier.trim();
+  const row = db.prepare(`
+    SELECT * FROM users
+    WHERE username = ? OR (trim(phone) != '' AND phone = ?)
+    LIMIT 1
+  `).get(clean, clean) as Record<string, unknown> | undefined;
+
+  if (!row) {
+    const tenantRow = db.prepare(`
+      SELECT * FROM tenants
+      WHERE phone = ? AND is_active = 1
+      LIMIT 1
+    `).get(clean) as Record<string, unknown> | undefined;
+
+    if (tenantRow) {
+      const passHash = hashPassword('123456');
+      const res = db.prepare(`
+        INSERT INTO users (username, password_hash, full_name, role, phone, email, property_id, room_id, tenant_id)
+        VALUES (?, ?, ?, 'TENANT', ?, '', ?, ?, ?)
+      `).run(
+        clean,
+        passHash,
+        String(tenantRow.full_name),
+        clean,
+        Number(tenantRow.property_id),
+        Number(tenantRow.room_id),
+        Number(tenantRow.id)
+      );
+      return {
+        id: Number(res.lastInsertRowid),
+        username: clean,
+        fullName: String(tenantRow.full_name),
+        role: 'TENANT',
+        phone: clean,
+        email: '',
+        propertyId: Number(tenantRow.property_id),
+        roomId: Number(tenantRow.room_id),
+        tenantId: Number(tenantRow.id),
+        createdAt: new Date().toISOString(),
+        passwordHash: passHash,
+      };
+    }
+    return null;
+  }
+
+  return {
+    id: Number(row.id),
+    username: String(row.username),
+    fullName: String(row.full_name),
+    role: String(row.role) as UserRole,
+    phone: String(row.phone || ''),
+    email: String(row.email || ''),
+    propertyId: row.property_id !== null ? Number(row.property_id) : null,
+    roomId: row.room_id !== null ? Number(row.room_id) : null,
+    tenantId: row.tenant_id !== null ? Number(row.tenant_id) : null,
+    createdAt: String(row.created_at || ''),
+    passwordHash: String(row.password_hash),
+  };
+}
+
+export function findUserById(id: number): User | null {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT id, username, full_name, role, phone, email, property_id, room_id, tenant_id, created_at
+    FROM users WHERE id = ?
+  `).get(id) as Record<string, unknown> | undefined;
+
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    username: String(row.username),
+    fullName: String(row.full_name),
+    role: String(row.role) as UserRole,
+    phone: String(row.phone || ''),
+    email: String(row.email || ''),
+    propertyId: row.property_id !== null ? Number(row.property_id) : null,
+    roomId: row.room_id !== null ? Number(row.room_id) : null,
+    tenantId: row.tenant_id !== null ? Number(row.tenant_id) : null,
+    createdAt: String(row.created_at || ''),
+  };
+}
+
+export function createUser(data: {
+  username: string;
+  password: string;
+  fullName: string;
+  role: UserRole;
+  phone?: string;
+  email?: string;
+  propertyId?: number | null;
+  roomId?: number | null;
+  tenantId?: number | null;
+}): User {
+  const db = getDb();
+  const passHash = hashPassword(data.password);
+  const res = db.prepare(`
+    INSERT INTO users (username, password_hash, full_name, role, phone, email, property_id, room_id, tenant_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.username.trim(),
+    passHash,
+    data.fullName.trim(),
+    data.role,
+    (data.phone || '').trim(),
+    (data.email || '').trim(),
+    data.propertyId ?? null,
+    data.roomId ?? null,
+    data.tenantId ?? null
+  );
+
+  return findUserById(Number(res.lastInsertRowid))!;
+}
+
+export function updateUser(
+  id: number,
+  data: {
+    fullName?: string;
+    role?: UserRole;
+    phone?: string;
+    email?: string;
+    propertyId?: number | null;
+    roomId?: number | null;
+    tenantId?: number | null;
+    newPassword?: string;
+  }
+) {
+  const db = getDb();
+  if (data.newPassword) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(data.newPassword), id);
+  }
+  db.prepare(`
+    UPDATE users SET
+      full_name = COALESCE(?, full_name),
+      role = COALESCE(?, role),
+      phone = COALESCE(?, phone),
+      email = COALESCE(?, email),
+      property_id = ?,
+      room_id = ?,
+      tenant_id = ?
+    WHERE id = ?
+  `).run(
+    data.fullName ?? null,
+    data.role ?? null,
+    data.phone ?? null,
+    data.email ?? null,
+    data.propertyId ?? null,
+    data.roomId ?? null,
+    data.tenantId ?? null,
+    id
+  );
+}
+
+export function deleteUser(id: number) {
+  const db = getDb();
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+}
+
 export function getAllData() {
   const db = getDb();
 
@@ -644,5 +913,7 @@ export function getAllData() {
     note: String(inv.note || ''),
   }));
 
-  return { properties, rooms, tenants, invoices };
+  const users = getAllUsers();
+
+  return { properties, rooms, tenants, invoices, users };
 }
