@@ -572,27 +572,36 @@ export default function NhaTroDashboardPage() {
 
   const [currMonth, currYear] = selectedPeriod ? selectedPeriod.split('-').map(Number) : [0, 0];
 
+  const collectionRate =
+    sheetSummary.totalRevenue > 0
+      ? Math.min(100, Math.round((sheetSummary.collectedAmount / sheetSummary.totalRevenue) * 100))
+      : 0;
+  const occupancyRate =
+    propertyRooms.length > 0
+      ? Math.min(100, Math.round((occupiedRoomsCount / propertyRooms.length) * 100))
+      : 0;
+
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Top Header */}
-      <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-700 text-white shadow-md">
+      {/* Top Glassmorphic Header */}
+      <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur-xl shadow-2xs">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 via-emerald-600 to-cyan-700 text-white shadow-md shadow-teal-900/15 ring-2 ring-teal-500/20">
               <Building2 className="h-6 w-6" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-black tracking-tight text-slate-900 sm:text-xl">
+                <h1 className="text-lg font-extrabold tracking-tight text-slate-900 sm:text-xl">
                   Quản Lý Nhà Trọ Thông Minh
                 </h1>
-                <span className="hidden sm:inline-block rounded-md bg-teal-50 px-2 py-0.5 text-[10px] font-extrabold text-teal-800 border border-teal-200">
-                  v2.0 Roles & VietQR
+                <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-teal-50 to-emerald-50 px-2.5 py-0.5 text-[10px] font-extrabold text-teal-800 border border-teal-200/80 shadow-2xs">
+                  ✦ Pro Cloud & VietQR
                 </span>
               </div>
-              <p className="text-xs text-slate-500">
-                Chủ nhà: <strong>{currentProperty.bankAccountHolder}</strong> • Vietcombank:{' '}
-                <span className="font-mono font-semibold text-teal-800">
+              <p className="text-xs text-slate-500 mt-0.5">
+                Chủ nhà: <strong className="text-slate-700">{currentProperty.bankAccountHolder}</strong> • Vietcombank:{' '}
+                <span className="font-mono font-bold text-teal-700 bg-teal-50/80 px-1.5 py-0.5 rounded">
                   {currentProperty.bankAccountNumber}
                 </span>
               </p>
@@ -602,14 +611,14 @@ export default function NhaTroDashboardPage() {
           {/* User Auth & Profile Badge */}
           <div className="flex flex-wrap items-center gap-2">
             {currentUser ? (
-              <div className="flex items-center gap-1.5 sm:gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-1.5 shadow-2xs">
+              <div className="flex items-center gap-1.5 sm:gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/90 p-1.5 shadow-2xs">
                 <div
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-bold ${
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold shadow-2xs ${
                     currentUser.role === 'ADMIN'
-                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      ? 'bg-gradient-to-r from-amber-100 to-orange-100 text-amber-950 border border-amber-300/80'
                       : currentUser.role === 'MANAGER'
-                      ? 'bg-sky-100 text-sky-900 border border-sky-300'
-                      : 'bg-purple-100 text-purple-900 border border-purple-300'
+                      ? 'bg-gradient-to-r from-sky-100 to-cyan-100 text-sky-950 border border-sky-300/80'
+                      : 'bg-gradient-to-r from-purple-100 to-fuchsia-100 text-purple-950 border border-purple-300/80'
                   }`}
                 >
                   {currentUser.role === 'ADMIN' ? (
@@ -619,8 +628,8 @@ export default function NhaTroDashboardPage() {
                   ) : (
                     <>👤 Khách thuê</>
                   )}
-                  <span className="font-normal text-slate-400">|</span>
-                  <span className="max-w-[120px] truncate">{currentUser.fullName}</span>
+                  <span className="font-normal opacity-40">|</span>
+                  <span className="max-w-[130px] truncate">{currentUser.fullName}</span>
                 </div>
 
                 {currentUser.role === 'ADMIN' && (
@@ -628,7 +637,7 @@ export default function NhaTroDashboardPage() {
                     type="button"
                     onClick={() => setUserManagementModalOpen(true)}
                     title="Quản lý tài khoản người dùng"
-                    className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 shadow-2xs"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-slate-200/90 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-2xs"
                   >
                     <UserCog className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
                     <span>Tài khoản ({users.length})</span>
@@ -639,7 +648,7 @@ export default function NhaTroDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setTenantPortalMode(!tenantPortalMode)}
-                    className="inline-flex items-center gap-1 rounded-xl bg-purple-700 px-2.5 py-1 text-xs font-bold text-white hover:bg-purple-800 shadow-2xs"
+                    className="inline-flex items-center gap-1 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 px-3 py-1.5 text-xs font-bold text-white hover:from-purple-800 hover:to-indigo-800 shadow-xs transition-all"
                   >
                     {tenantPortalMode ? 'Xem bảng tổng quan' : 'Cổng Khách thuê'}
                   </button>
@@ -649,7 +658,7 @@ export default function NhaTroDashboardPage() {
                   type="button"
                   onClick={() => setLoginModalOpen(true)}
                   title="Đổi vai trò / Đăng nhập khác"
-                  className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                  className="inline-flex items-center gap-1 rounded-xl bg-white border border-slate-200/90 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
                 >
                   <KeyRound className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
                   <span className="hidden sm:inline">Đổi vai trò</span>
@@ -662,7 +671,7 @@ export default function NhaTroDashboardPage() {
                     setLoginModalOpen(true);
                   }}
                   title="Đăng xuất"
-                  className="rounded-xl p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                  className="rounded-xl p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                   aria-label="Đăng xuất"
                 >
                   <LogOut className="h-4 w-4" aria-hidden="true" />
@@ -672,7 +681,7 @@ export default function NhaTroDashboardPage() {
               <button
                 type="button"
                 onClick={() => setLoginModalOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-800"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:from-teal-700 hover:to-emerald-700 transition-all"
               >
                 <LogIn className="h-4 w-4" aria-hidden="true" />
                 Đăng Nhập
@@ -682,10 +691,10 @@ export default function NhaTroDashboardPage() {
         </div>
 
         {/* Property Switcher Bar */}
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-slate-100/90 px-4 py-2.5 sm:px-6 bg-slate-50/40">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Khu trọ:
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">
+              Cơ sở trọ:
             </span>
             {properties.map((prop) => {
               const isSelected = prop.id === currentProperty.id;
@@ -694,17 +703,22 @@ export default function NhaTroDashboardPage() {
                   key={prop.id}
                   type="button"
                   onClick={() => setSelectedPropertyId(prop.id)}
-                  className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
                     isSelected
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'border border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      ? 'bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white shadow-sm ring-1 ring-teal-500/30'
+                      : 'border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300'
                   }`}
                 >
-                  <Home className="h-3.5 w-3.5 text-teal-400" aria-hidden="true" />
+                  <Home
+                    className={`h-3.5 w-3.5 ${isSelected ? 'text-teal-400' : 'text-slate-400'}`}
+                    aria-hidden="true"
+                  />
                   <span>{prop.name}</span>
                   <span
-                    className={`rounded-md px-1.5 py-0.5 text-[10px] ${
-                      isSelected ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-600'
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                      isSelected
+                        ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
+                        : 'bg-slate-100 text-slate-600'
                     }`}
                   >
                     {prop.waterMode === 'BY_METER' ? 'Nước: Đồng hồ m³' : 'Nước: Đầu người'}
@@ -716,7 +730,7 @@ export default function NhaTroDashboardPage() {
               <button
                 type="button"
                 onClick={() => setNewPropModalOpen(true)}
-                className="inline-flex items-center gap-1 rounded-xl border border-dashed border-teal-600 px-2.5 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50"
+                className="inline-flex items-center gap-1 rounded-xl border border-dashed border-teal-600/70 bg-teal-50/40 px-3 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50 transition-colors"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 Thêm khu trọ
@@ -725,7 +739,7 @@ export default function NhaTroDashboardPage() {
           </div>
 
           {currentUser?.role === 'TENANT' && (
-            <div className="text-xs text-purple-700 font-semibold bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200">
+            <div className="text-xs text-purple-800 font-semibold bg-purple-50 px-3 py-1 rounded-xl border border-purple-200">
               {tenantPortalMode
                 ? 'Đang hiển thị Cổng riêng của bạn'
                 : 'Đang xem Bảng tổng quan (Chỉ đọc)'}
@@ -736,7 +750,7 @@ export default function NhaTroDashboardPage() {
         {/* Navigation Tabs */}
         {(!currentUser || currentUser.role !== 'TENANT' || !tenantPortalMode) && (
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
-            <nav aria-label="Chức năng chính" className="flex flex-wrap gap-1 border-t border-slate-100 pt-2">
+            <nav aria-label="Chức năng chính" className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
             {(
               [
                 {
@@ -747,7 +761,7 @@ export default function NhaTroDashboardPage() {
                 },
                 {
                   id: 'rooms_tenants',
-                  label: 'Phòng & Thành Viên Ở',
+                  label: 'Phòng & Hồ Sơ Cư Trú',
                   icon: Users,
                   badge: `${activeTenantsCount} người / ${propertyRooms.length} phòng`,
                 },
@@ -772,17 +786,19 @@ export default function NhaTroDashboardPage() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-bold transition-colors ${
+                  className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-bold transition-all ${
                     active
-                      ? 'border-teal-700 text-teal-800 bg-teal-50/50 rounded-t-xl'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-t-xl'
+                      ? 'border-teal-600 text-teal-900 bg-gradient-to-t from-teal-50/80 to-transparent rounded-t-xl'
+                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50/80 rounded-t-xl'
                   }`}
                 >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  <Icon className={`h-4 w-4 ${active ? 'text-teal-600' : 'text-slate-400'}`} aria-hidden="true" />
                   <span>{tab.label}</span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                      active ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-700'
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                      active
+                        ? 'bg-teal-700 text-white shadow-2xs'
+                        : 'bg-slate-200/80 text-slate-700'
                     }`}
                   >
                     {tab.badge}
@@ -835,47 +851,51 @@ export default function NhaTroDashboardPage() {
               </div>
             )}
 
-            {/* Property Context Banner */}
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-lg bg-teal-100 px-2.5 py-0.5 text-xs font-bold text-teal-900">
+            {/* Executive Property Hero Banner */}
+            <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 p-5 sm:p-6 text-white shadow-lg border border-slate-800">
+              <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-teal-400/20 border border-teal-400/30 px-3 py-1 text-xs font-extrabold text-teal-200 backdrop-blur-md">
+                      <Home className="h-3.5 w-3.5 text-teal-300" aria-hidden="true" />
                       {currentProperty.name}
                     </span>
-                    <span className="text-xs text-slate-600">📍 {currentProperty.address}</span>
+                    <span className="text-xs font-medium text-slate-300">
+                      📍 {currentProperty.address}
+                    </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 pt-1">
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 font-semibold text-amber-900 border border-amber-200">
-                      <Zap className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
-                      Điện: {formatVND(currentProperty.electricityRate)} đ/KW (Theo đồng hồ)
+                  <div className="flex flex-wrap items-center gap-2 text-xs pt-0.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-semibold text-amber-200 border border-white/15">
+                      <Zap className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                      Điện: <strong className="font-mono text-white">{formatVND(currentProperty.electricityRate)}</strong> đ/KW
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-1 font-semibold text-sky-900 border border-sky-200">
-                      <Droplets className="h-3.5 w-3.5 text-sky-600" aria-hidden="true" />
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-semibold text-sky-200 border border-white/15">
+                      <Droplets className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
                       Nước:{' '}
+                      <strong className="font-mono text-white">{formatVND(currentProperty.waterRate)}</strong>{' '}
                       {currentProperty.waterMode === 'BY_METER'
-                        ? `${formatVND(currentProperty.waterRate)} đ/m³ (Theo chỉ số đồng hồ)`
+                        ? 'đ/m³ (Đồng hồ)'
                         : currentProperty.waterMode === 'PER_PERSON'
-                        ? `${formatVND(currentProperty.waterRate)} đ/người (Theo đầu người trong phòng)`
-                        : `${formatVND(currentProperty.waterRate)} đ/phòng`}
+                        ? 'đ/người (Đầu người)'
+                        : 'đ/phòng'}
                     </span>
-                    <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                      Rác: {formatVND(currentProperty.trashRate)} đ/tháng
+                    <span className="inline-flex items-center gap-1 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-medium text-slate-200 border border-white/10">
+                      Rác: <strong className="font-mono text-white">{formatVND(currentProperty.trashRate)}</strong> đ/tháng
                     </span>
                     {currentProperty.lightingRate > 0 && currentProperty.lightingMode !== 'FREE' && (
-                      <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                        Đèn VS: {formatVND(currentProperty.lightingRate)} đ/tháng
+                      <span className="inline-flex items-center gap-1 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-medium text-slate-200 border border-white/10">
+                        Đèn VS: <strong className="font-mono text-white">{formatVND(currentProperty.lightingRate)}</strong> đ/tháng
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2.5">
                   {currentUser?.role !== 'TENANT' && (
                     <button
                       type="button"
                       onClick={() => setNewSheetModalOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-800 transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-teal-400 to-emerald-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md hover:from-teal-300 hover:to-emerald-300 transition-all"
                     >
                       <CalendarPlus className="h-4 w-4" aria-hidden="true" />
                       Lập bảng thu tiền tháng mới
@@ -884,9 +904,9 @@ export default function NhaTroDashboardPage() {
                   <button
                     type="button"
                     onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md px-4 py-2.5 text-xs font-bold text-white hover:bg-white/20 transition-all"
                   >
-                    <Download className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                    <Download className="h-4 w-4 text-teal-300" aria-hidden="true" />
                     Xuất Excel (.xlsx)
                   </button>
                 </div>
@@ -898,64 +918,101 @@ export default function NhaTroDashboardPage() {
           <div className="space-y-6">
             {/* KPI Summary Cards */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                <div className="flex items-center justify-between text-xs font-bold uppercase text-slate-500">
-                  <span>Tổng tiền kỳ {currMonth}/{currYear}</span>
-                  <Wallet className="h-4 w-4 text-teal-700" aria-hidden="true" />
+              {/* Card 1: Total Revenue */}
+              <div className="group relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-5 shadow-xs transition-all hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                    Tổng thu kỳ {currMonth}/{currYear}
+                  </span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700 border border-teal-100">
+                    <Wallet className="h-5 w-5" aria-hidden="true" />
+                  </div>
                 </div>
-                <div className="mt-2 text-2xl font-black text-slate-900">
-                  {formatVND(sheetSummary.totalRevenue)} đ
+                <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 font-mono">
+                  {formatVND(sheetSummary.totalRevenue)} <span className="text-sm font-bold text-slate-500">đ</span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Tiền phòng: {formatVND(sheetSummary.rentTotal)}đ • Điện+Nước:{' '}
-                  {formatVND(sheetSummary.elecTotal + sheetSummary.waterTotal)}đ
+                <p className="mt-2 text-xs text-slate-500">
+                  Tiền phòng: <strong className="text-slate-700 font-mono">{formatVND(sheetSummary.rentTotal)}đ</strong> • Điện+Nước:{' '}
+                  <strong className="text-slate-700 font-mono">{formatVND(sheetSummary.elecTotal + sheetSummary.waterTotal)}đ</strong>
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-xs">
-                <div className="flex items-center justify-between text-xs font-bold uppercase text-emerald-800">
-                  <span>Đã thu trong kỳ</span>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+              {/* Card 2: Collected Amount + Progress Bar */}
+              <div className="group relative overflow-hidden rounded-3xl border border-emerald-200/90 bg-gradient-to-br from-white via-emerald-50/30 to-emerald-50/70 p-5 shadow-xs transition-all hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-800">
+                    Đã thu trong kỳ ({collectionRate}%)
+                  </span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100/80 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                  </div>
                 </div>
-                <div className="mt-2 text-2xl font-black text-emerald-800">
-                  {formatVND(sheetSummary.collectedAmount)} đ
+                <div className="mt-3 text-2xl font-black tracking-tight text-emerald-800 font-mono">
+                  {formatVND(sheetSummary.collectedAmount)} <span className="text-sm font-bold text-emerald-600">đ</span>
                 </div>
-                <p className="mt-1 text-xs text-emerald-700">
-                  Nhấn vào nút trạng thái từng phòng để đánh dấu Đã thu nhanh
+                <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-emerald-200/60">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                    style={{ width: `${collectionRate}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] font-medium text-emerald-700">
+                  Nhấn nút trạng thái từng phòng để gạch nợ 1 chạm
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4 shadow-xs">
-                <div className="flex items-center justify-between text-xs font-bold uppercase text-rose-800">
-                  <span>Còn chưa thu / Công nợ</span>
-                  <Clock className="h-4 w-4 text-rose-600" aria-hidden="true" />
+              {/* Card 3: Unpaid / Receivables */}
+              <div className="group relative overflow-hidden rounded-3xl border border-rose-200/90 bg-gradient-to-br from-white via-rose-50/30 to-rose-50/70 p-5 shadow-xs transition-all hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-rose-800">
+                    Còn chưa thu / Công nợ
+                  </span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100/80 text-rose-700 border border-rose-200">
+                    <Clock className="h-5 w-5" aria-hidden="true" />
+                  </div>
                 </div>
-                <div className="mt-2 text-2xl font-black text-rose-700">
-                  {formatVND(sheetSummary.unpaidAmount)} đ
+                <div className="mt-3 text-2xl font-black tracking-tight text-rose-700 font-mono">
+                  {formatVND(sheetSummary.unpaidAmount)} <span className="text-sm font-bold text-rose-500">đ</span>
                 </div>
-                <p className="mt-1 text-xs text-rose-700">
-                  Tự động chuyển sang kỳ sau nếu chưa đóng đủ
+                <p className="mt-2 text-xs text-rose-700">
+                  {sheetSummary.unpaidAmount === 0
+                    ? '🎉 Tuyệt vời! Đã thu đủ 100% các phòng trong kỳ'
+                    : 'Tự động theo dõi & đối soát công nợ từng phòng'}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
-                <div className="flex items-center justify-between text-xs font-bold uppercase text-slate-500">
-                  <span>Mật độ cư trú hiện tại</span>
-                  <Users className="h-4 w-4 text-teal-700" aria-hidden="true" />
+              {/* Card 4: Occupancy Density + Progress Bar */}
+              <div className="group relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-5 shadow-xs transition-all hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                    Mật độ lấp đầy ({occupancyRate}%)
+                  </span>
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-50 text-sky-700 border border-sky-100">
+                    <Users className="h-5 w-5" aria-hidden="true" />
+                  </div>
                 </div>
-                <div className="mt-2 text-2xl font-black text-slate-900">
-                  {activeTenantsCount} người / {occupiedRoomsCount}/{propertyRooms.length} phòng
+                <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">
+                  {activeTenantsCount} người{' '}
+                  <span className="text-sm font-bold text-slate-500">
+                    ({occupiedRoomsCount}/{propertyRooms.length} phòng)
+                  </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  Mỗi phòng lưu chi tiết từng thành viên & biển số xe
+                <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-teal-500 to-sky-500 transition-all duration-500"
+                    style={{ width: `${occupancyRate}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Lưu đầy đủ CCCD 2 mặt, Hợp đồng & biển số xe
                 </p>
               </div>
             </div>
 
             {/* Period selector & Actions bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mr-1">
                   Kỳ thu tiền:
                 </span>
                 {availablePeriods.map((p) => {
@@ -966,9 +1023,9 @@ export default function NhaTroDashboardPage() {
                       key={key}
                       type="button"
                       onClick={() => setSelectedPeriod(key)}
-                      className={`rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                      className={`rounded-2xl px-4 py-2 text-xs font-bold transition-all ${
                         active
-                          ? 'bg-teal-700 text-white shadow-xs'
+                          ? 'bg-gradient-to-r from-teal-700 to-emerald-700 text-white shadow-sm'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
@@ -985,22 +1042,22 @@ export default function NhaTroDashboardPage() {
                 <button
                   type="button"
                   onClick={handleSyncOccupantsToSheet}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100"
+                  className="inline-flex items-center gap-1.5 rounded-2xl border border-sky-200 bg-sky-50/80 px-3.5 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 transition-colors"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  Cập nhật số người ở từ Hồ sơ phòng
+                  <RefreshCw className="h-3.5 w-3.5 text-sky-700" aria-hidden="true" />
+                  Đồng bộ số người ở từ Hồ sơ phòng
                 </button>
                 <select
                   aria-label="Lọc theo trạng thái thanh toán"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                  className="rounded-2xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700"
                 >
                   <option value="ALL">Tất cả phòng ({propertyRooms.length})</option>
-                  <option value="PAID">Đã đóng đủ</option>
-                  <option value="UNPAID">Chưa đóng</option>
-                  <option value="PARTIAL">Đóng một phần</option>
-                  <option value="VACANT">Phòng trống</option>
+                  <option value="PAID">✓ Đã đóng đủ</option>
+                  <option value="UNPAID">⏳ Chưa đóng</option>
+                  <option value="PARTIAL">◐ Đóng một phần</option>
+                  <option value="VACANT">○ Phòng trống</option>
                 </select>
               </div>
             </div>
@@ -1365,190 +1422,206 @@ export default function NhaTroDashboardPage() {
                 return (
                   <article
                     key={room.id}
-                    className={`flex flex-col justify-between rounded-2xl border p-4 shadow-xs transition-all hover:shadow-md ${
+                    className={`group relative flex flex-col justify-between overflow-hidden rounded-3xl border shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg ${
                       isOccupied
-                        ? 'border-slate-200 bg-white'
-                        : 'border-dashed border-slate-300 bg-slate-50/70'
+                        ? 'border-slate-200/90 bg-white'
+                        : 'border-dashed border-slate-300 bg-slate-50/75'
                     }`}
                   >
-                    <div>
-                      {/* Room Header */}
-                      <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
-                        <div className="flex items-center gap-2.5">
+                    {/* Top Status Accent Bar */}
+                    <div
+                      className={`h-1.5 w-full ${
+                        isOccupied
+                          ? 'bg-gradient-to-r from-teal-500 via-emerald-500 to-cyan-500'
+                          : 'bg-slate-300'
+                      }`}
+                    />
+
+                    <div className="p-4 flex-1 flex flex-col justify-between">
+                      <div>
+                        {/* Room Header */}
+                        <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className={`flex h-11 w-11 items-center justify-center rounded-2xl text-base font-black shadow-2xs ${
+                                isOccupied
+                                  ? 'bg-gradient-to-br from-teal-600 to-emerald-700 text-white'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              P.{room.roomNumber}
+                            </span>
+                            <div>
+                              <h3 className="font-extrabold text-slate-900">
+                                Phòng {room.roomNumber}
+                                {room.oldRoomNumber && (
+                                  <span className="ml-1 text-xs font-normal text-slate-500">
+                                    (Cũ: {room.oldRoomNumber})
+                                  </span>
+                                )}
+                              </h3>
+                              <p className="text-xs font-extrabold text-teal-700 font-mono">
+                                {formatVND(room.baseRent)} đ/tháng
+                              </p>
+                            </div>
+                          </div>
+
                           <span
-                            className={`flex h-10 w-10 items-center justify-center rounded-xl text-base font-black ${
-                              isOccupied
-                                ? 'bg-teal-700 text-white'
+                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                              rTenants.length > 0
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200/70'
                                 : 'bg-slate-200 text-slate-600'
                             }`}
                           >
-                            P.{room.roomNumber}
+                            {rTenants.length > 0 ? `${rTenants.length} người ở` : 'Phòng trống'}
                           </span>
-                          <div>
-                            <h3 className="font-bold text-slate-900">
-                              Phòng {room.roomNumber}
-                              {room.oldRoomNumber && (
-                                <span className="ml-1 text-xs font-normal text-slate-500">
-                                  (Cũ: {room.oldRoomNumber})
-                                </span>
-                              )}
-                            </h3>
-                            <p className="text-xs font-bold text-teal-800">
-                              {formatVND(room.baseRent)} đ/tháng
-                            </p>
-                          </div>
                         </div>
 
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                            rTenants.length > 0
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {rTenants.length > 0 ? `${rTenants.length} người ở` : 'Phòng trống'}
-                        </span>
+                        {/* Billing mechanism & Room Contract badges */}
+                        <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px]">
+                          <span className="rounded-lg bg-sky-50 px-2 py-0.5 font-semibold text-sky-800 border border-sky-200/80">
+                            {effectiveWaterMode === 'PER_PERSON'
+                              ? `Nước: Đầu người (${rTenants.length})`
+                              : effectiveWaterMode === 'BY_METER'
+                              ? `Nước: Đồng hồ (${room.currentWaterIndex} m³)`
+                              : 'Nước: Riêng'}
+                          </span>
+                          <span className="rounded-lg bg-amber-50 px-2 py-0.5 font-semibold text-amber-800 border border-amber-200/80 font-mono">
+                            ⚡ {room.currentElecIndex} KW
+                          </span>
+                          {roomContracts.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setLightboxPreview({
+                                  title: `Hợp Đồng Thuê Phòng ${room.roomNumber} (${currentProperty.name})`,
+                                  images: roomContracts.map((c) => ({
+                                    label: c.title,
+                                    dataUrl: c.dataUrl,
+                                    uploadedAt: c.uploadedAt,
+                                  })),
+                                })
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg bg-teal-100 px-2 py-0.5 font-bold text-teal-900 hover:bg-teal-200 transition-colors"
+                            >
+                              <FileCheck2 className="h-3 w-3" aria-hidden="true" />
+                              HĐ phòng: {roomContracts.length} ảnh
+                            </button>
+                          )}
+                          {room.lightingModeOverride === 'FREE' && (
+                            <span className="rounded-lg bg-purple-50 px-2 py-0.5 font-semibold text-purple-800">
+                              Miễn Đèn VS
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Member List inside Room */}
+                        <div className="mt-3 space-y-2">
+                          <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                            Danh sách thành viên ({rTenants.length}):
+                          </div>
+                          {rTenants.length === 0 ? (
+                            <p className="py-4 text-center text-xs italic text-slate-400 bg-slate-100/60 rounded-2xl">
+                              Chưa có người ở
+                            </p>
+                          ) : (
+                            <ul className="space-y-1.5">
+                              {rTenants.map((t) => {
+                                const tContracts = parseDocumentImages(t.contractImagesJson);
+                                const docCount =
+                                  (t.cccdFrontUrl ? 1 : 0) +
+                                  (t.cccdBackUrl ? 1 : 0) +
+                                  tContracts.length;
+                                const avatarChar =
+                                  t.fullName.trim().split(/\s+/).pop()?.[0]?.toUpperCase() || 'K';
+
+                                return (
+                                  <li
+                                    key={t.id}
+                                    className="rounded-xl bg-slate-50/90 px-2.5 py-2 text-xs border border-slate-100 hover:border-teal-200/80 transition-colors"
+                                  >
+                                    <div className="flex items-center justify-between gap-1.5 font-bold text-slate-800">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-teal-100 text-[11px] font-black text-teal-800">
+                                          {avatarChar}
+                                        </span>
+                                        <span className="truncate">{t.fullName}</span>
+                                        {t.isRepresentative && (
+                                          <span className="shrink-0 rounded-md bg-teal-700 px-1.5 py-0.2 text-[9px] font-bold text-white">
+                                            Đ.Diện
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="font-mono text-[11px] text-slate-500 shrink-0">
+                                        {t.phone}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 flex items-center justify-between pl-8 text-[11px] text-slate-500">
+                                      <span className="truncate">Quê: {t.hometown || '—'}</span>
+                                      {docCount > 0 ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const imgs: LightboxPreviewData['images'] = [];
+                                            if (t.cccdFrontUrl) {
+                                              imgs.push({
+                                                label: `CCCD Mặt Trước — ${t.fullName}`,
+                                                dataUrl: t.cccdFrontUrl,
+                                              });
+                                            }
+                                            if (t.cccdBackUrl) {
+                                              imgs.push({
+                                                label: `CCCD Mặt Sau — ${t.fullName}`,
+                                                dataUrl: t.cccdBackUrl,
+                                              });
+                                            }
+                                            for (const c of tContracts) {
+                                              imgs.push({
+                                                label: c.title,
+                                                dataUrl: c.dataUrl,
+                                                uploadedAt: c.uploadedAt,
+                                              });
+                                            }
+                                            setLightboxPreview({
+                                              title: `Hồ Sơ CCCD & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
+                                              subtitle: `Số CCCD: ${t.cccd || '—'} • SĐT: ${t.phone || '—'}`,
+                                              images: imgs,
+                                            });
+                                          }}
+                                          className="inline-flex items-center gap-1 rounded-md bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800 hover:bg-teal-200 shrink-0"
+                                        >
+                                          <Eye className="h-2.5 w-2.5" aria-hidden="true" />
+                                          {docCount} ảnh CCCD/HĐ
+                                        </button>
+                                      ) : t.vehiclePlate ? (
+                                        <span className="font-mono text-slate-600 shrink-0">
+                                          🏍️ {t.vehiclePlate}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Billing mechanism & Room Contract badges */}
-                      <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded bg-sky-50 px-2 py-0.5 font-medium text-sky-800 border border-sky-200">
-                          {effectiveWaterMode === 'PER_PERSON'
-                            ? `Nước: Theo đầu người (${rTenants.length} người)`
-                            : effectiveWaterMode === 'BY_METER'
-                            ? `Nước: Đồng hồ (${room.currentWaterIndex} m³)`
-                            : 'Nước: Riêng'}
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-slate-500 font-mono">
+                          Cọc: {formatVND(room.depositAmount)}đ
                         </span>
-                        <span className="rounded bg-amber-50 px-2 py-0.5 font-medium text-amber-800 border border-amber-200">
-                          Điện hiện tại: {room.currentElecIndex} KW
-                        </span>
-                        {roomContracts.length > 0 && (
+                        {currentUser?.role !== 'TENANT' && (
                           <button
                             type="button"
-                            onClick={() =>
-                              setLightboxPreview({
-                                title: `Hợp Đồng Thuê Phòng ${room.roomNumber} (${currentProperty.name})`,
-                                images: roomContracts.map((c) => ({
-                                  label: c.title,
-                                  dataUrl: c.dataUrl,
-                                  uploadedAt: c.uploadedAt,
-                                })),
-                              })
-                            }
-                            className="inline-flex items-center gap-1 rounded bg-teal-100 px-2 py-0.5 font-bold text-teal-900 hover:bg-teal-200"
+                            onClick={() => setManagingRoom(room)}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:from-teal-800 hover:to-emerald-800 transition-all"
                           >
-                            <FileCheck2 className="h-3 w-3" aria-hidden="true" />
-                            HĐ phòng: {roomContracts.length} ảnh
+                            <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                            Người ở, CCCD & HĐ
                           </button>
                         )}
-                        {room.lightingModeOverride === 'FREE' && (
-                          <span className="rounded bg-purple-50 px-2 py-0.5 font-medium text-purple-800">
-                            Miễn Đèn VS
-                          </span>
-                        )}
                       </div>
-
-                      {/* Member List inside Room */}
-                      <div className="mt-3 space-y-2">
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Danh sách thành viên ({rTenants.length}):
-                        </div>
-                        {rTenants.length === 0 ? (
-                          <p className="py-3 text-center text-xs italic text-slate-400">
-                            Chưa có người ở
-                          </p>
-                        ) : (
-                          <ul className="space-y-1.5">
-                            {rTenants.map((t) => {
-                              const tContracts = parseDocumentImages(t.contractImagesJson);
-                              const docCount =
-                                (t.cccdFrontUrl ? 1 : 0) +
-                                (t.cccdBackUrl ? 1 : 0) +
-                                tContracts.length;
-
-                              return (
-                                <li
-                                  key={t.id}
-                                  className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs border border-slate-100"
-                                >
-                                  <div className="flex items-center justify-between font-semibold text-slate-800">
-                                    <span>
-                                      {t.fullName}
-                                      {t.isRepresentative && (
-                                        <span className="ml-1 rounded bg-teal-700 px-1 py-0.2 text-[9px] text-white">
-                                          Đ.Diện
-                                        </span>
-                                      )}
-                                    </span>
-                                    <span className="font-mono text-[11px] text-slate-500">
-                                      {t.phone}
-                                    </span>
-                                  </div>
-                                  <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500">
-                                    <span>Quê: {t.hometown || '—'}</span>
-                                    {docCount > 0 ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const imgs: LightboxPreviewData['images'] = [];
-                                          if (t.cccdFrontUrl) {
-                                            imgs.push({
-                                              label: `CCCD Mặt Trước — ${t.fullName}`,
-                                              dataUrl: t.cccdFrontUrl,
-                                            });
-                                          }
-                                          if (t.cccdBackUrl) {
-                                            imgs.push({
-                                              label: `CCCD Mặt Sau — ${t.fullName}`,
-                                              dataUrl: t.cccdBackUrl,
-                                            });
-                                          }
-                                          for (const c of tContracts) {
-                                            imgs.push({
-                                              label: c.title,
-                                              dataUrl: c.dataUrl,
-                                              uploadedAt: c.uploadedAt,
-                                            });
-                                          }
-                                          setLightboxPreview({
-                                            title: `Hồ Sơ CCCD & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
-                                            subtitle: `Số CCCD: ${t.cccd || '—'} • SĐT: ${t.phone || '—'}`,
-                                            images: imgs,
-                                          });
-                                        }}
-                                        className="inline-flex items-center gap-1 rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800 hover:bg-teal-200"
-                                      >
-                                        <Eye className="h-2.5 w-2.5" aria-hidden="true" />
-                                        {docCount} ảnh CCCD/HĐ
-                                      </button>
-                                    ) : t.vehiclePlate ? (
-                                      <span className="font-mono text-slate-600">
-                                        🏍️ {t.vehiclePlate}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-500">
-                        Cọc: {formatVND(room.depositAmount)}đ
-                      </span>
-                      {currentUser?.role !== 'TENANT' && (
-                        <button
-                          type="button"
-                          onClick={() => setManagingRoom(room)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
-                        >
-                          <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                          Người ở, CCCD & HĐ
-                        </button>
-                      )}
                     </div>
                   </article>
                 );

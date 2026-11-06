@@ -2,26 +2,104 @@
 
 :root {
   --brand-primary: #0f766e;
+  --brand-primary-hover: #0d9488;
   --brand-focus: #0b57d0;
+  color-scheme: light;
 }
 
-/* Modern Web Guidance: Dialog scroll containment & backdrop */
+body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  accent-color: var(--brand-primary);
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(at 0% 0%, rgba(20, 184, 166, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(14, 165, 233, 0.07) 0px, transparent 45%),
+    radial-gradient(at 50% 100%, rgba(245, 158, 11, 0.04) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fallback for older browsers without accent-color per brand-consistent-forms */
+@supports not (accent-color: var(--brand-primary)) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    outline-color: var(--brand-primary);
+  }
+  progress::-webkit-progress-value {
+    background-color: var(--brand-primary);
+  }
+  progress::-moz-progress-bar {
+    background-color: var(--brand-primary);
+  }
+}
+
+/* Modern Web Guidance: Top-layer dialog entry/exit animation & scroll containment */
 dialog:modal {
   overscroll-behavior: contain;
+}
+
+dialog {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.24s;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-behavior: allow-discrete;
 }
 
 dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(3px);
+  background-color: rgb(15 23 42 / 0);
+  backdrop-filter: blur(0px);
+  transition-property: background-color, backdrop-filter, display, overlay;
+  transition-duration: 0.24s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+:is(dialog[open]):where(:not([data-closing])) {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+
+  &::backdrop {
+    background-color: rgb(15 23 42 / 0.6);
+    backdrop-filter: blur(4px);
+
+    @starting-style {
+      background-color: rgb(15 23 42 / 0);
+      backdrop-filter: blur(0px);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog {
+    transform: none;
+    transition-duration: 0.1s;
+  }
+
+  @starting-style {
+    :is(dialog[open]):where(:not([data-closing])) {
+      transform: none;
+    }
+  }
 }
 
 /* Modern Web Guidance: Responsive Table with sticky headers and container queries */
 .table-wrapper {
   overflow: auto;
   max-inline-size: 100%;
-  max-block-size: min(720px, 78vh);
+  max-block-size: min(740px, 78vh);
   container-type: inline-size;
 }
 
@@ -29,6 +107,7 @@ dialog::backdrop {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
+  font-variant-numeric: tabular-nums;
 }
 
 .table-wrapper thead {
@@ -42,10 +121,11 @@ dialog::backdrop {
   inset-inline-start: 0;
   z-index: 1;
   background-color: #ffffff;
+  transition: background-color 0.15s ease;
 }
 
 .table-wrapper tbody tr:hover th {
-  background-color: #f8fafc;
+  background-color: #f0fdfa;
 }
 
 @container (width < 600px) {
@@ -87,9 +167,21 @@ dialog::backdrop {
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-button:focus-visible {
+button:focus-visible,
+a:focus-visible {
   outline: 3px solid var(--brand-focus);
   outline-offset: 2px;
+}
+
+/* Forced Colors Mode support per color guide */
+@media (forced-colors: active) {
+  button,
+  input,
+  select,
+  textarea,
+  dialog {
+    border: 1px solid ButtonText;
+  }
 }
 
 /* Modern Web Guidance: Canonical visually-hidden utility */
@@ -115,5 +207,7 @@ button:focus-visible {
     max-width: 100% !important;
     border: none !important;
     box-shadow: none !important;
+    transform: none !important;
+    opacity: 1 !important;
   }
 }
