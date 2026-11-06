@@ -7,8 +7,15 @@ import {
   deleteUser,
   findUserByUsernameOrPhone,
   verifyPassword,
+  syncFromNeon,
+  syncToNeon,
 } from '@/lib/db';
 import { BillingMode, ExtraFeeItem } from '@/types/nhatro';
+
+async function syncAndReturnAllData() {
+  await syncToNeon();
+  return NextResponse.json(getAllData());
+}
 
 function calcFeeByMode(
   mode: BillingMode,
@@ -49,6 +56,7 @@ function recalcRoomOccupants(propertyId: number, roomId: number) {
 
 export async function GET() {
   try {
+    await syncFromNeon();
     const data = getAllData();
     return NextResponse.json(data);
   } catch (err: unknown) {
@@ -59,6 +67,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await syncFromNeon();
     const body = await req.json();
     const { action } = body;
     const db = getDb();
@@ -100,7 +109,7 @@ export async function POST(req: NextRequest) {
         p.parkingMode || 'FREE',
         Number(p.id)
       );
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'create_property') {
@@ -150,7 +159,7 @@ export async function POST(req: NextRequest) {
       for (let i = 1; i <= roomCount; i++) {
         insertRoom.run(newPropId, String(i), String(i), baseRent, baseRent);
       }
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'upsert_room') {
@@ -217,7 +226,7 @@ export async function POST(req: NextRequest) {
           String(r.note || '')
         );
       }
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'upsert_tenant') {
@@ -277,14 +286,14 @@ export async function POST(req: NextRequest) {
         );
       }
       recalcRoomOccupants(Number(t.propertyId), Number(t.roomId));
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'delete_tenant') {
       const { id, propertyId, roomId } = body;
       db.prepare('DELETE FROM tenants WHERE id = ?').run(Number(id));
       recalcRoomOccupants(Number(propertyId), Number(roomId));
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'save_invoice') {
@@ -406,7 +415,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'record_payment') {
@@ -429,7 +438,7 @@ export async function POST(req: NextRequest) {
         WHERE id = ?
       `).run(paymentStatus, finalPaid, paidDate, paymentMethod || 'TRANSFER', Number(invoiceId));
 
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'create_month_sheet') {
@@ -577,7 +586,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'sync_occupants_to_sheet') {
@@ -650,7 +659,7 @@ export async function POST(req: NextRequest) {
         `).run(occ, veh, waterAmount, wifiAmount, parkingAmount, totalAmount, Number(inv.id));
       }
 
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'login') {
@@ -698,7 +707,7 @@ export async function POST(req: NextRequest) {
           roomId: u.roomId ? Number(u.roomId) : null,
           tenantId: u.tenantId ? Number(u.tenantId) : null,
         });
-        return NextResponse.json(getAllData());
+        return await syncAndReturnAllData();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Lỗi khi tạo tài khoản';
         return NextResponse.json({ error: msg }, { status: 400 });
@@ -717,13 +726,13 @@ export async function POST(req: NextRequest) {
         tenantId: u.tenantId ? Number(u.tenantId) : null,
         newPassword: u.newPassword || undefined,
       });
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     if (action === 'delete_user') {
       const { id } = body;
       deleteUser(Number(id));
-      return NextResponse.json(getAllData());
+      return await syncAndReturnAllData();
     }
 
     return NextResponse.json({ error: 'Action không hợp lệ' }, { status: 400 });

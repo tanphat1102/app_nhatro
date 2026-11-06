@@ -2,7 +2,17 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import dns from 'node:dns';
+import net from 'node:net';
+import { neon } from '@neondatabase/serverless';
 import { BillingMode, Invoice, Property, Room, Tenant, User, UserRole } from '@/types/nhatro';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+  net.setDefaultAutoSelectFamily?.(false);
+} catch {
+  // ignore
+}
 
 const IS_VERCEL = Boolean(process.env.VERCEL);
 const DATA_DIR = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'data');
@@ -17,6 +27,8 @@ export function verifyPassword(password: string, hash: string): boolean {
 }
 
 let dbInstance: DatabaseSync | null = null;
+let localNeonVersion = 0;
+let neonSchemaReady = false;
 
 export function getDb(): DatabaseSync {
   if (dbInstance) return dbInstance;
@@ -26,9 +38,7 @@ export function getDb(): DatabaseSync {
   }
 
   const db = new DatabaseSync(DB_PATH);
-  if (!IS_VERCEL) {
-    db.exec('PRAGMA journal_mode = WAL;');
-  }
+  db.exec('PRAGMA journal_mode = DELETE;');
   db.exec('PRAGMA foreign_keys = ON;');
 
   initSchema(db);
@@ -917,3 +927,329 @@ export function getAllData() {
 
   return { properties, rooms, tenants, invoices, users };
 }
+
+function getNeonClient() {
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!url) return null;
+  return neon(url);
+}
+
+async function ensureNeonSchema(sql: NonNullable<ReturnType<typeof getNeonClient>>) {
+  if (neonSchemaReady) return;
+  await sql.transaction([
+    sql`
+      CREATE TABLE IF NOT EXISTS nhatro_sync_state (
+        id INTEGER PRIMARY KEY,
+        version BIGINT NOT NULL DEFAULT 1,
+        sqlite_base64 TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    sql`
+      CREATE TABLE IF NOT EXISTS properties (
+        id INTEGER PRIMARY KEY,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        bank_name TEXT NOT NULL,
+        bank_bin TEXT NOT NULL,
+        bank_account_number TEXT NOT NULL,
+        bank_account_holder TEXT NOT NULL,
+        payment_note TEXT NOT NULL,
+        general_note TEXT NOT NULL,
+        electricity_rate INTEGER NOT NULL,
+        electricity_mode TEXT NOT NULL,
+        water_rate INTEGER NOT NULL,
+        water_mode TEXT NOT NULL,
+        trash_rate INTEGER NOT NULL,
+        trash_mode TEXT NOT NULL,
+        lighting_rate INTEGER NOT NULL,
+        lighting_mode TEXT NOT NULL,
+        wifi_rate INTEGER NOT NULL,
+        wifi_mode TEXT NOT NULL,
+        parking_rate INTEGER NOT NULL,
+        parking_mode TEXT NOT NULL
+      )
+    `,
+    sql`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id INTEGER PRIMARY KEY,
+        property_id INTEGER NOT NULL,
+        room_number TEXT NOT NULL,
+        old_room_number TEXT NOT NULL,
+        base_rent INTEGER NOT NULL,
+        deposit_amount INTEGER NOT NULL,
+        contract_start_date TEXT NOT NULL,
+        contract_end_date TEXT NOT NULL,
+        status TEXT NOT NULL,
+        water_mode_override TEXT NOT NULL,
+        water_rate_override INTEGER,
+        lighting_mode_override TEXT NOT NULL,
+        trash_mode_override TEXT NOT NULL,
+        wifi_mode_override TEXT NOT NULL,
+        parking_mode_override TEXT NOT NULL,
+        current_elec_index INTEGER NOT NULL,
+        current_water_index INTEGER NOT NULL,
+        default_occupants INTEGER NOT NULL,
+        note TEXT NOT NULL
+      )
+    `,
+    sql`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id INTEGER PRIMARY KEY,
+        property_id INTEGER NOT NULL,
+        room_id INTEGER NOT NULL,
+        full_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        cccd TEXT NOT NULL,
+        birth_year TEXT NOT NULL,
+        gender TEXT NOT NULL,
+        hometown TEXT NOT NULL,
+        occupation TEXT NOT NULL,
+        vehicle_plate TEXT NOT NULL,
+        is_representative INTEGER NOT NULL,
+        move_in_date TEXT NOT NULL,
+        move_out_date TEXT NOT NULL,
+        temp_residence_status TEXT NOT NULL,
+        is_active INTEGER NOT NULL,
+        notes TEXT NOT NULL
+      )
+    `,
+    sql`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id INTEGER PRIMARY KEY,
+        property_id INTEGER NOT NULL,
+        room_id INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        sheet_code TEXT NOT NULL,
+        occupant_count INTEGER NOT NULL,
+        vehicle_count INTEGER NOT NULL,
+        elec_old INTEGER NOT NULL,
+        elec_new INTEGER NOT NULL,
+        elec_rate INTEGER NOT NULL,
+        elec_amount INTEGER NOT NULL,
+        water_mode TEXT NOT NULL,
+        water_old INTEGER NOT NULL,
+        water_new INTEGER NOT NULL,
+        water_rate INTEGER NOT NULL,
+        water_amount INTEGER NOT NULL,
+        trash_amount INTEGER NOT NULL,
+        lighting_amount INTEGER NOT NULL,
+        wifi_amount INTEGER NOT NULL,
+        parking_amount INTEGER NOT NULL,
+        extra_fees_json TEXT NOT NULL,
+        extra_fees_amount INTEGER NOT NULL,
+        room_rent INTEGER NOT NULL,
+        previous_debt INTEGER NOT NULL,
+        discount_amount INTEGER NOT NULL,
+        total_amount INTEGER NOT NULL,
+        excel_original_total INTEGER,
+        payment_status TEXT NOT NULL,
+        paid_amount INTEGER NOT NULL,
+        paid_date TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        note TEXT NOT NULL
+      )
+    `,
+    sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        email TEXT NOT NULL,
+        property_id INTEGER,
+        room_id INTEGER,
+        tenant_id INTEGER,
+        created_at TEXT NOT NULL
+      )
+    `,
+  ]);
+  neonSchemaReady = true;
+}
+
+export async function syncFromNeon(): Promise<void> {
+  const sql = getNeonClient();
+  if (!sql) return;
+
+  try {
+    await ensureNeonSchema(sql);
+    const meta = await sql`SELECT version FROM nhatro_sync_state WHERE id = 1`;
+    if (meta.length === 0) {
+      getDb();
+      await syncToNeon();
+      return;
+    }
+
+    const remoteVersion = Number(meta[0].version || 0);
+    if (remoteVersion !== localNeonVersion) {
+      const full = await sql`SELECT version, sqlite_base64 FROM nhatro_sync_state WHERE id = 1`;
+      if (full.length > 0 && full[0].sqlite_base64) {
+        if (dbInstance) {
+          try {
+            dbInstance.close();
+          } catch {
+            // ignore close error
+          }
+          dbInstance = null;
+        }
+        if (!fs.existsSync(DATA_DIR)) {
+          fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+        for (const ext of ['-wal', '-shm']) {
+          const p = DB_PATH + ext;
+          if (fs.existsSync(p)) {
+            fs.unlinkSync(p);
+          }
+        }
+        const buf = Buffer.from(String(full[0].sqlite_base64), 'base64');
+        fs.writeFileSync(DB_PATH, buf);
+        getDb();
+        localNeonVersion = Number(full[0].version);
+      }
+    }
+  } catch (err) {
+    console.error('Error syncing from Neon Postgres:', err);
+  }
+}
+
+export async function syncToNeon(): Promise<void> {
+  const sql = getNeonClient();
+  if (!sql) return;
+
+  try {
+    await ensureNeonSchema(sql);
+    const db = getDb();
+
+    // Remove WAL if any so DB_PATH is 100% self-contained
+    const walPath = DB_PATH + '-wal';
+    if (fs.existsSync(walPath)) {
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+        db.exec('PRAGMA journal_mode = DELETE;');
+      } catch {
+        // ignore
+      }
+    }
+
+    const base64 = fs.readFileSync(DB_PATH).toString('base64');
+    const upserted = await sql`
+      INSERT INTO nhatro_sync_state (id, version, sqlite_base64, updated_at)
+      VALUES (1, 1, ${base64}, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        version = nhatro_sync_state.version + 1,
+        sqlite_base64 = EXCLUDED.sqlite_base64,
+        updated_at = NOW()
+      RETURNING version
+    `;
+    if (upserted.length > 0) {
+      localNeonVersion = Number(upserted[0].version);
+    }
+
+    // Mirror relational tables into Neon Postgres for SQL Explorer / external queries
+    const props = db.prepare('SELECT * FROM properties').all() as Record<string, unknown>[];
+    const rooms = db.prepare('SELECT * FROM rooms').all() as Record<string, unknown>[];
+    const tenants = db.prepare('SELECT * FROM tenants').all() as Record<string, unknown>[];
+    const invoices = db.prepare('SELECT * FROM invoices').all() as Record<string, unknown>[];
+    const users = db.prepare('SELECT * FROM users').all() as Record<string, unknown>[];
+
+    const queries = [
+      sql`TRUNCATE TABLE properties, rooms, tenants, invoices, users`,
+      ...props.map(
+        (p) => sql`
+          INSERT INTO properties (
+            id, code, name, address, bank_name, bank_bin, bank_account_number, bank_account_holder,
+            payment_note, general_note, electricity_rate, electricity_mode, water_rate, water_mode,
+            trash_rate, trash_mode, lighting_rate, lighting_mode, wifi_rate, wifi_mode, parking_rate, parking_mode
+          ) VALUES (
+            ${Number(p.id)}, ${String(p.code)}, ${String(p.name)}, ${String(p.address)},
+            ${String(p.bank_name)}, ${String(p.bank_bin)}, ${String(p.bank_account_number)}, ${String(p.bank_account_holder)},
+            ${String(p.payment_note)}, ${String(p.general_note)},
+            ${Number(p.electricity_rate)}, ${String(p.electricity_mode)},
+            ${Number(p.water_rate)}, ${String(p.water_mode)},
+            ${Number(p.trash_rate)}, ${String(p.trash_mode)},
+            ${Number(p.lighting_rate)}, ${String(p.lighting_mode)},
+            ${Number(p.wifi_rate)}, ${String(p.wifi_mode)},
+            ${Number(p.parking_rate)}, ${String(p.parking_mode)}
+          )
+        `
+      ),
+      ...rooms.map(
+        (r) => sql`
+          INSERT INTO rooms (
+            id, property_id, room_number, old_room_number, base_rent, deposit_amount,
+            contract_start_date, contract_end_date, status, water_mode_override, water_rate_override,
+            lighting_mode_override, trash_mode_override, wifi_mode_override, parking_mode_override,
+            current_elec_index, current_water_index, default_occupants, note
+          ) VALUES (
+            ${Number(r.id)}, ${Number(r.property_id)}, ${String(r.room_number)}, ${String(r.old_room_number)},
+            ${Number(r.base_rent)}, ${Number(r.deposit_amount)}, ${String(r.contract_start_date)}, ${String(r.contract_end_date)},
+            ${String(r.status)}, ${String(r.water_mode_override)},
+            ${r.water_rate_override !== null ? Number(r.water_rate_override) : null},
+            ${String(r.lighting_mode_override)}, ${String(r.trash_mode_override)},
+            ${String(r.wifi_mode_override)}, ${String(r.parking_mode_override)},
+            ${Number(r.current_elec_index)}, ${Number(r.current_water_index)}, ${Number(r.default_occupants)}, ${String(r.note)}
+          )
+        `
+      ),
+      ...tenants.map(
+        (t) => sql`
+          INSERT INTO tenants (
+            id, property_id, room_id, full_name, phone, cccd, birth_year, gender,
+            hometown, occupation, vehicle_plate, is_representative, move_in_date, move_out_date,
+            temp_residence_status, is_active, notes
+          ) VALUES (
+            ${Number(t.id)}, ${Number(t.property_id)}, ${Number(t.room_id)}, ${String(t.full_name)},
+            ${String(t.phone)}, ${String(t.cccd)}, ${String(t.birth_year)}, ${String(t.gender)},
+            ${String(t.hometown)}, ${String(t.occupation)}, ${String(t.vehicle_plate)},
+            ${Number(t.is_representative)}, ${String(t.move_in_date)}, ${String(t.move_out_date)},
+            ${String(t.temp_residence_status)}, ${Number(t.is_active)}, ${String(t.notes)}
+          )
+        `
+      ),
+      ...invoices.map(
+        (i) => sql`
+          INSERT INTO invoices (
+            id, property_id, room_id, month, year, sheet_code, occupant_count, vehicle_count,
+            elec_old, elec_new, elec_rate, elec_amount, water_mode, water_old, water_new, water_rate, water_amount,
+            trash_amount, lighting_amount, wifi_amount, parking_amount, extra_fees_json, extra_fees_amount,
+            room_rent, previous_debt, discount_amount, total_amount, excel_original_total,
+            payment_status, paid_amount, paid_date, payment_method, note
+          ) VALUES (
+            ${Number(i.id)}, ${Number(i.property_id)}, ${Number(i.room_id)}, ${Number(i.month)}, ${Number(i.year)},
+            ${String(i.sheet_code)}, ${Number(i.occupant_count)}, ${Number(i.vehicle_count)},
+            ${Number(i.elec_old)}, ${Number(i.elec_new)}, ${Number(i.elec_rate)}, ${Number(i.elec_amount)},
+            ${String(i.water_mode)}, ${Number(i.water_old)}, ${Number(i.water_new)}, ${Number(i.water_rate)}, ${Number(i.water_amount)},
+            ${Number(i.trash_amount)}, ${Number(i.lighting_amount)}, ${Number(i.wifi_amount)}, ${Number(i.parking_amount)},
+            ${String(i.extra_fees_json)}, ${Number(i.extra_fees_amount)}, ${Number(i.room_rent)},
+            ${Number(i.previous_debt)}, ${Number(i.discount_amount)}, ${Number(i.total_amount)},
+            ${i.excel_original_total !== null ? Number(i.excel_original_total) : null},
+            ${String(i.payment_status)}, ${Number(i.paid_amount)}, ${String(i.paid_date)}, ${String(i.payment_method)}, ${String(i.note)}
+          )
+        `
+      ),
+      ...users.map(
+        (u) => sql`
+          INSERT INTO users (
+            id, username, password_hash, full_name, role, phone, email, property_id, room_id, tenant_id, created_at
+          ) VALUES (
+            ${Number(u.id)}, ${String(u.username)}, ${String(u.password_hash)}, ${String(u.full_name)},
+            ${String(u.role)}, ${String(u.phone)}, ${String(u.email)},
+            ${u.property_id !== null ? Number(u.property_id) : null},
+            ${u.room_id !== null ? Number(u.room_id) : null},
+            ${u.tenant_id !== null ? Number(u.tenant_id) : null},
+            ${String(u.created_at)}
+          )
+        `
+      ),
+    ];
+
+    await sql.transaction(queries);
+  } catch (err) {
+    console.error('Error syncing to Neon Postgres:', err);
+  }
+}
+
