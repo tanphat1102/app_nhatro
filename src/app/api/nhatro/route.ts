@@ -10,7 +10,7 @@ import {
   syncFromNeon,
   syncToNeon,
 } from '@/lib/db';
-import { BillingMode, ExtraFeeItem } from '@/types/nhatro';
+import { BillingMode, CustomFeeTemplate, ExtraFeeItem } from '@/types/nhatro';
 
 async function syncAndReturnAllData() {
   await syncToNeon();
@@ -37,6 +37,53 @@ function calcFeeByMode(
     default:
       return 0;
   }
+}
+
+function buildExtraFeesFromTemplates(
+  templatesRaw: unknown,
+  options: { occupants: number; vehicles: number; isVacant: boolean }
+): { extraFees: ExtraFeeItem[]; extraFeesAmount: number } {
+  if (options.isVacant) return { extraFees: [], extraFeesAmount: 0 };
+  let templates: CustomFeeTemplate[] = [];
+  try {
+    templates =
+      typeof templatesRaw === 'string'
+        ? JSON.parse(templatesRaw || '[]')
+        : Array.isArray(templatesRaw)
+        ? templatesRaw
+        : [];
+  } catch {
+    templates = [];
+  }
+
+  const extraFees: ExtraFeeItem[] = [];
+  for (const tpl of templates) {
+    if (!tpl || tpl.defaultActive === false || tpl.mode === 'FREE' || Number(tpl.unitPrice || 0) <= 0) {
+      continue;
+    }
+    const unitPrice = Number(tpl.unitPrice || 0);
+    const quantity =
+      tpl.mode === 'PER_PERSON'
+        ? Math.max(0, options.occupants)
+        : tpl.mode === 'PER_QUANTITY'
+        ? Math.max(0, options.vehicles)
+        : 1;
+    const amount = quantity * unitPrice;
+    extraFees.push({
+      id: String(tpl.id || `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+      name: String(tpl.name || 'Khoản thu khác'),
+      mode: tpl.mode || 'FIXED_PER_ROOM',
+      unit:
+        tpl.unit ||
+        (tpl.mode === 'PER_PERSON' ? 'người' : tpl.mode === 'PER_QUANTITY' ? 'lượt' : 'phòng'),
+      unitPrice,
+      quantity,
+      amount,
+    });
+  }
+
+  const extraFeesAmount = extraFees.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  return { extraFees, extraFeesAmount };
 }
 
 function recalcRoomOccupants(propertyId: number, roomId: number) {
@@ -74,6 +121,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'update_property') {
       const p = body.property;
+      const customFeeTemplatesStr =
+        typeof p.customFeeTemplatesJson === 'string'
+          ? p.customFeeTemplatesJson
+          : JSON.stringify(p.customFeeTemplatesJson || []);
       db.prepare(`
         UPDATE properties SET
           name = ?, address = ?,
@@ -84,7 +135,8 @@ export async function POST(req: NextRequest) {
           trash_rate = ?, trash_mode = ?,
           lighting_rate = ?, lighting_mode = ?,
           wifi_rate = ?, wifi_mode = ?,
-          parking_rate = ?, parking_mode = ?
+          parking_rate = ?, parking_mode = ?,
+          custom_fee_templates_json = ?
         WHERE id = ?
       `).run(
         p.name,
@@ -107,6 +159,7 @@ export async function POST(req: NextRequest) {
         p.wifiMode || 'FREE',
         Number(p.parkingRate || 0),
         p.parkingMode || 'FREE',
+        customFeeTemplatesStr,
         Number(p.id)
       );
       return await syncAndReturnAllData();
@@ -115,6 +168,10 @@ export async function POST(req: NextRequest) {
     if (action === 'create_property') {
       const p = body.property;
       const code = 'NT_' + Date.now();
+      const customFeeTemplatesStr =
+        typeof p.customFeeTemplatesJson === 'string'
+          ? p.customFeeTemplatesJson
+          : JSON.stringify(p.customFeeTemplatesJson || []);
       const res = db.prepare(`
         INSERT INTO properties (
           code, name, address, bank_name, bank_bin, bank_account_number, bank_account_holder,
@@ -124,8 +181,9 @@ export async function POST(req: NextRequest) {
           trash_rate, trash_mode,
           lighting_rate, lighting_mode,
           wifi_rate, wifi_mode,
-          parking_rate, parking_mode
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          parking_rate, parking_mode,
+          custom_fee_templates_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         code,
         p.name,
@@ -147,7 +205,8 @@ export async function POST(req: NextRequest) {
         Number(p.wifiRate ?? 0),
         p.wifiMode || 'FREE',
         Number(p.parkingRate ?? 0),
-        p.parkingMode || 'FREE'
+        p.parkingMode || 'FREE',
+        customFeeTemplatesStr
       );
       const newPropId = Number(res.lastInsertRowid);
       const roomCount = Number(p.initialRoomCount || 8);
@@ -584,6 +643,12 @@ export async function POST(req: NextRequest) {
           isVacant,
         });
 
+        const { extraFees, extraFeesAmount } = buildExtraFeesFromTemplates(prop.custom_fee_templates_json, {
+          occupants,
+          vehicles,
+          isVacant,
+        });
+
         const roomRent = isVacant ? 0 : Number(r.base_rent || 0);
         const prevDebt =
           carryOverDebt && prevInv && String(prevInv.payment_status) !== 'PAID' && String(prevInv.payment_status) !== 'VACANT'
@@ -592,7 +657,15 @@ export async function POST(req: NextRequest) {
 
         const totalAmount = isVacant
           ? 0
-          : elecAmount + waterAmount + trashAmount + lightingAmount + wifiAmount + parkingAmount + roomRent + prevDebt;
+          : elecAmount +
+            waterAmount +
+            trashAmount +
+            lightingAmount +
+            wifiAmount +
+            parkingAmount +
+            extraFeesAmount +
+            roomRent +
+            prevDebt;
 
         insertInv.run(
           Number(propertyId),
@@ -615,8 +688,8 @@ export async function POST(req: NextRequest) {
           lightingAmount,
           wifiAmount,
           parkingAmount,
-          '[]',
-          0,
+          JSON.stringify(extraFees),
+          extraFeesAmount,
           roomRent,
           prevDebt,
           0,
@@ -680,6 +753,24 @@ export async function POST(req: NextRequest) {
           isVacant,
         });
 
+        // Also recalculate any PER_PERSON extra fees on the invoice
+        let extraFees: ExtraFeeItem[] = [];
+        try {
+          extraFees = JSON.parse(String(inv.extra_fees_json || '[]'));
+        } catch {
+          extraFees = [];
+        }
+        extraFees = extraFees.map((ef) => {
+          if (ef.mode === 'PER_PERSON') {
+            const q = isVacant ? 0 : Math.max(0, occ);
+            return { ...ef, quantity: q, amount: q * Number(ef.unitPrice || 0) };
+          }
+          return ef;
+        });
+        const extraFeesAmount = isVacant
+          ? 0
+          : extraFees.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
         const totalAmount = isVacant
           ? 0
           : Math.max(
@@ -690,7 +781,7 @@ export async function POST(req: NextRequest) {
                 Number(inv.lighting_amount) +
                 wifiAmount +
                 parkingAmount +
-                Number(inv.extra_fees_amount) +
+                extraFeesAmount +
                 Number(inv.room_rent) +
                 Number(inv.previous_debt) -
                 Number(inv.discount_amount)
@@ -698,9 +789,216 @@ export async function POST(req: NextRequest) {
 
         db.prepare(`
           UPDATE invoices
-          SET occupant_count = ?, vehicle_count = ?, water_amount = ?, wifi_amount = ?, parking_amount = ?, total_amount = ?
+          SET occupant_count = ?, vehicle_count = ?, water_amount = ?, wifi_amount = ?, parking_amount = ?, extra_fees_json = ?, extra_fees_amount = ?, total_amount = ?
           WHERE id = ?
-        `).run(occ, veh, waterAmount, wifiAmount, parkingAmount, totalAmount, Number(inv.id));
+        `).run(
+          occ,
+          veh,
+          waterAmount,
+          wifiAmount,
+          parkingAmount,
+          JSON.stringify(extraFees),
+          extraFeesAmount,
+          totalAmount,
+          Number(inv.id)
+        );
+      }
+
+      return await syncAndReturnAllData();
+    }
+
+    if (action === 'add_custom_fee_to_period') {
+      const { propertyId, month, year, fee, targetScope, roomIds, saveAsTemplate } = body;
+      const prop = db.prepare('SELECT * FROM properties WHERE id = ?').get(Number(propertyId)) as Record<string, unknown>;
+      if (!prop) {
+        return NextResponse.json({ error: 'Không tìm thấy khu nhà trọ' }, { status: 404 });
+      }
+
+      const feeName = String(fee?.name || '').trim();
+      const feeMode = (fee?.mode || 'FIXED_PER_ROOM') as BillingMode;
+      const feeUnit =
+        String(fee?.unit || '').trim() ||
+        (feeMode === 'PER_PERSON' ? 'người' : feeMode === 'PER_QUANTITY' ? 'lượt' : 'phòng');
+      const feeUnitPrice = Math.max(0, Number(fee?.unitPrice || 0));
+      const customQuantity = fee?.customQuantity !== undefined ? Math.max(0, Number(fee.customQuantity)) : null;
+
+      if (!feeName) {
+        return NextResponse.json({ error: 'Vui lòng nhập tên khoản thu mới' }, { status: 400 });
+      }
+
+      if (saveAsTemplate) {
+        let templates: CustomFeeTemplate[] = [];
+        try {
+          templates = JSON.parse(String(prop.custom_fee_templates_json || '[]'));
+        } catch {
+          templates = [];
+        }
+        const existingIdx = templates.findIndex(
+          (t) => t.name.trim().toLowerCase() === feeName.toLowerCase()
+        );
+        const tplItem: CustomFeeTemplate = {
+          id: existingIdx >= 0 ? templates[existingIdx].id : `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: feeName,
+          mode: feeMode,
+          unit: feeUnit,
+          unitPrice: feeUnitPrice,
+          defaultActive: true,
+        };
+        if (existingIdx >= 0) {
+          templates[existingIdx] = tplItem;
+        } else {
+          templates.push(tplItem);
+        }
+        db.prepare('UPDATE properties SET custom_fee_templates_json = ? WHERE id = ?').run(
+          JSON.stringify(templates),
+          Number(propertyId)
+        );
+      }
+
+      const invs = db
+        .prepare('SELECT * FROM invoices WHERE property_id = ? AND month = ? AND year = ?')
+        .all(Number(propertyId), Number(month), Number(year)) as Record<string, unknown>[];
+
+      const selectedRoomIdSet = Array.isArray(roomIds) ? new Set(roomIds.map((id) => Number(id))) : null;
+
+      for (const inv of invs) {
+        const isVacant = String(inv.payment_status) === 'VACANT';
+        const roomId = Number(inv.room_id);
+
+        if (targetScope === 'SELECTED_ROOMS') {
+          if (!selectedRoomIdSet || !selectedRoomIdSet.has(roomId)) continue;
+        } else {
+          // ALL_OCCUPIED
+          if (isVacant) continue;
+        }
+
+        let extraFees: ExtraFeeItem[] = [];
+        try {
+          extraFees = JSON.parse(String(inv.extra_fees_json || '[]'));
+        } catch {
+          extraFees = [];
+        }
+
+        const occ = Number(inv.occupant_count || 1);
+        const veh = Number(inv.vehicle_count || 0);
+        const quantity =
+          feeMode === 'PER_PERSON'
+            ? Math.max(0, occ)
+            : feeMode === 'PER_QUANTITY'
+            ? customQuantity !== null && customQuantity > 0
+              ? customQuantity
+              : Math.max(1, veh)
+            : 1;
+        const amount = isVacant ? 0 : quantity * feeUnitPrice;
+
+        const existingFeeIdx = extraFees.findIndex(
+          (item) => String(item.name || '').trim().toLowerCase() === feeName.toLowerCase()
+        );
+        const newFeeItem: ExtraFeeItem = {
+          id:
+            existingFeeIdx >= 0
+              ? extraFees[existingFeeIdx].id
+              : `ef_${Date.now()}_${roomId}_${Math.random().toString(36).slice(2, 5)}`,
+          name: feeName,
+          mode: feeMode,
+          unit: feeUnit,
+          unitPrice: feeUnitPrice,
+          quantity,
+          amount,
+        };
+
+        if (existingFeeIdx >= 0) {
+          extraFees[existingFeeIdx] = newFeeItem;
+        } else {
+          extraFees.push(newFeeItem);
+        }
+
+        const extraFeesAmount = isVacant
+          ? 0
+          : extraFees.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+        const totalAmount = isVacant
+          ? 0
+          : Math.max(
+              0,
+              Number(inv.elec_amount) +
+                Number(inv.water_amount) +
+                Number(inv.trash_amount) +
+                Number(inv.lighting_amount) +
+                Number(inv.wifi_amount) +
+                Number(inv.parking_amount) +
+                extraFeesAmount +
+                Number(inv.room_rent) +
+                Number(inv.previous_debt) -
+                Number(inv.discount_amount)
+            );
+
+        // If invoice was marked PAID, keep paid_amount = totalAmount so landlord's paid status stays consistent, or if PARTIAL/UNPAID keep existing paid_amount
+        const nextPaidAmount =
+          String(inv.payment_status) === 'PAID' ? totalAmount : Number(inv.paid_amount || 0);
+
+        db.prepare(`
+          UPDATE invoices
+          SET extra_fees_json = ?, extra_fees_amount = ?, total_amount = ?, paid_amount = ?
+          WHERE id = ?
+        `).run(JSON.stringify(extraFees), extraFeesAmount, totalAmount, nextPaidAmount, Number(inv.id));
+      }
+
+      return await syncAndReturnAllData();
+    }
+
+    if (action === 'remove_custom_fee_from_period') {
+      const { propertyId, month, year, feeName } = body;
+      const targetName = String(feeName || '').trim().toLowerCase();
+      if (!targetName) {
+        return NextResponse.json({ error: 'Thiếu tên khoản thu cần xóa' }, { status: 400 });
+      }
+
+      const invs = db
+        .prepare('SELECT * FROM invoices WHERE property_id = ? AND month = ? AND year = ?')
+        .all(Number(propertyId), Number(month), Number(year)) as Record<string, unknown>[];
+
+      for (const inv of invs) {
+        const isVacant = String(inv.payment_status) === 'VACANT';
+        let extraFees: ExtraFeeItem[] = [];
+        try {
+          extraFees = JSON.parse(String(inv.extra_fees_json || '[]'));
+        } catch {
+          extraFees = [];
+        }
+        const filtered = extraFees.filter(
+          (item) => String(item.name || '').trim().toLowerCase() !== targetName
+        );
+        if (filtered.length === extraFees.length) continue;
+
+        const extraFeesAmount = isVacant
+          ? 0
+          : filtered.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+        const totalAmount = isVacant
+          ? 0
+          : Math.max(
+              0,
+              Number(inv.elec_amount) +
+                Number(inv.water_amount) +
+                Number(inv.trash_amount) +
+                Number(inv.lighting_amount) +
+                Number(inv.wifi_amount) +
+                Number(inv.parking_amount) +
+                extraFeesAmount +
+                Number(inv.room_rent) +
+                Number(inv.previous_debt) -
+                Number(inv.discount_amount)
+            );
+
+        const nextPaidAmount =
+          String(inv.payment_status) === 'PAID' ? totalAmount : Number(inv.paid_amount || 0);
+
+        db.prepare(`
+          UPDATE invoices
+          SET extra_fees_json = ?, extra_fees_amount = ?, total_amount = ?, paid_amount = ?
+          WHERE id = ?
+        `).run(JSON.stringify(filtered), extraFeesAmount, totalAmount, nextPaidAmount, Number(inv.id));
       }
 
       return await syncAndReturnAllData();

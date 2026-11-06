@@ -1,7 +1,17 @@
 'use client';
 
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { BillingMode, Invoice, Property, Room, Tenant, User, UserRole } from '@/types/nhatro';
+import {
+  BillingMode,
+  CustomFeeTemplate,
+  ExtraFeeItem,
+  Invoice,
+  Property,
+  Room,
+  Tenant,
+  User,
+  UserRole,
+} from '@/types/nhatro';
 import { InvoiceReceiptModal, formatVND } from '@/components/InvoiceReceiptModal';
 import { InvoiceEditModal } from '@/components/InvoiceEditModal';
 import { RoomTenantsModal } from '@/components/RoomTenantsModal';
@@ -42,6 +52,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   UserCheck,
   UserCog,
   UserPlus,
@@ -51,6 +62,20 @@ import {
   Zap,
   Droplets,
 } from 'lucide-react';
+
+const QUICK_CUSTOM_FEE_PRESETS: Array<{
+  name: string;
+  mode: BillingMode;
+  unit: string;
+  unitPrice: number;
+}> = [
+  { name: 'Máy giặt chung', mode: 'PER_PERSON', unit: 'người', unitPrice: 50000 },
+  { name: 'Thang máy', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 100000 },
+  { name: 'Vệ sinh hành lang', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 30000 },
+  { name: 'Camera an ninh', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 20000 },
+  { name: 'Sạc xe điện', mode: 'PER_QUANTITY', unit: 'xe', unitPrice: 150000 },
+  { name: 'Truyền hình / Cáp', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 50000 },
+];
 
 export default function NhaTroDashboardPage() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -109,6 +134,7 @@ export default function NhaTroDashboardPage() {
   const [managingRoom, setManagingRoom] = useState<Room | null>(null);
   const [newSheetModalOpen, setNewSheetModalOpen] = useState(false);
   const [newPropModalOpen, setNewPropModalOpen] = useState(false);
+  const [newFeeModalOpen, setNewFeeModalOpen] = useState(false);
   const [lightboxPreview, setLightboxPreview] = useState<LightboxPreviewData | null>(null);
 
   // New Sheet Form
@@ -116,8 +142,31 @@ export default function NhaTroDashboardPage() {
   const [newSheetYear, setNewSheetYear] = useState<number>(2026);
   const [carryOverDebt, setCarryOverDebt] = useState<boolean>(true);
 
+  // Add Custom Fee to Current Period Form
+  const [newFeeForm, setNewFeeForm] = useState<{
+    name: string;
+    mode: BillingMode;
+    unit: string;
+    unitPrice: number;
+    customQuantity: number;
+    targetScope: 'ALL_OCCUPIED' | 'SELECTED_ROOMS';
+    selectedRoomIds: number[];
+    saveAsTemplate: boolean;
+  }>({
+    name: 'Máy giặt chung',
+    mode: 'PER_PERSON',
+    unit: 'người',
+    unitPrice: 50000,
+    customQuantity: 1,
+    targetScope: 'ALL_OCCUPIED',
+    selectedRoomIds: [],
+    saveAsTemplate: true,
+  });
+  const [savingNewFee, setSavingNewFee] = useState(false);
+
   // Settings Form
   const [propForm, setPropForm] = useState<Property | null>(null);
+  const [propCustomTemplates, setPropCustomTemplates] = useState<CustomFeeTemplate[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
 
   // New Property Form
@@ -208,9 +257,25 @@ export default function NhaTroDashboardPage() {
     [properties, selectedPropertyId]
   );
 
+  const currentPropertyCustomTemplates = useMemo<CustomFeeTemplate[]>(() => {
+    if (!currentProperty?.customFeeTemplatesJson) return [];
+    try {
+      const parsed = JSON.parse(currentProperty.customFeeTemplatesJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [currentProperty]);
+
   useEffect(() => {
     if (currentProperty) {
       setPropForm({ ...currentProperty });
+      try {
+        const parsed = JSON.parse(currentProperty.customFeeTemplatesJson || '[]');
+        setPropCustomTemplates(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setPropCustomTemplates([]);
+      }
     }
   }, [currentProperty]);
 
@@ -298,6 +363,13 @@ export default function NhaTroDashboardPage() {
           t.vehiclePlate,
           t.hometown,
         ]);
+        let extraFeeNames: string[] = [];
+        try {
+          const parsed: ExtraFeeItem[] = JSON.parse(inv.extraFeesJson || '[]');
+          extraFeeNames = parsed.map((ef) => ef.name);
+        } catch {
+          extraFeeNames = [];
+        }
         return matchesSearchTokens(
           [
             `Phòng ${inv.roomNumber}`,
@@ -306,6 +378,7 @@ export default function NhaTroDashboardPage() {
             inv.roomNumber,
             inv.oldRoomNumber ? `Cũ ${inv.oldRoomNumber}` : '',
             inv.note,
+            ...extraFeeNames,
             ...tenantFields,
           ],
           billingSearch
@@ -340,6 +413,10 @@ export default function NhaTroDashboardPage() {
         waterTotal: 0,
         trashTotal: 0,
         lightingTotal: 0,
+        otherFeesTotal: 0,
+        extraFeesTotal: 0,
+        hasAnyOtherFees: false,
+        periodCustomFeeStats: [] as Array<{ name: string; roomCount: number; totalAmount: number }>,
         rentTotal: 0,
         excelOrigSum: 0,
         discrepancyCount: 0,
@@ -347,7 +424,9 @@ export default function NhaTroDashboardPage() {
     }
     const [m, y] = selectedPeriod.split('-').map(Number);
     const allInPeriod = propertyInvoices.filter((inv) => inv.month === m && inv.year === y);
-    return allInPeriod.reduce(
+    const feeStatsMap = new Map<string, { name: string; roomCount: number; totalAmount: number }>();
+
+    const summary = allInPeriod.reduce(
       (acc, inv) => {
         acc.totalRevenue += inv.totalAmount;
         acc.collectedAmount += inv.paidAmount;
@@ -356,6 +435,43 @@ export default function NhaTroDashboardPage() {
         acc.waterTotal += inv.waterAmount;
         acc.trashTotal += inv.trashAmount;
         acc.lightingTotal += inv.lightingAmount;
+        const rowOther =
+          inv.wifiAmount +
+          inv.parkingAmount +
+          inv.extraFeesAmount +
+          inv.previousDebt -
+          inv.discountAmount;
+        acc.otherFeesTotal += rowOther;
+        acc.extraFeesTotal += inv.extraFeesAmount;
+        if (
+          inv.wifiAmount > 0 ||
+          inv.parkingAmount > 0 ||
+          inv.extraFeesAmount > 0 ||
+          inv.previousDebt > 0 ||
+          inv.discountAmount > 0
+        ) {
+          acc.hasAnyOtherFees = true;
+        }
+        try {
+          const parsed: ExtraFeeItem[] = JSON.parse(inv.extraFeesJson || '[]');
+          if (parsed.length > 0) {
+            acc.hasAnyOtherFees = true;
+          }
+          for (const ef of parsed) {
+            if (!ef?.name) continue;
+            const key = ef.name.trim().toLowerCase();
+            const existing = feeStatsMap.get(key) || {
+              name: ef.name.trim(),
+              roomCount: 0,
+              totalAmount: 0,
+            };
+            existing.roomCount += 1;
+            existing.totalAmount += Number(ef.amount || 0);
+            feeStatsMap.set(key, existing);
+          }
+        } catch {
+          // ignore parse error
+        }
         acc.rentTotal += inv.roomRent;
         acc.excelOrigSum += inv.excelOriginalTotal ?? inv.totalAmount;
         if (inv.excelOriginalTotal !== null && inv.excelOriginalTotal !== inv.totalAmount) {
@@ -371,11 +487,17 @@ export default function NhaTroDashboardPage() {
         waterTotal: 0,
         trashTotal: 0,
         lightingTotal: 0,
+        otherFeesTotal: 0,
+        extraFeesTotal: 0,
+        hasAnyOtherFees: false,
+        periodCustomFeeStats: [] as Array<{ name: string; roomCount: number; totalAmount: number }>,
         rentTotal: 0,
         excelOrigSum: 0,
         discrepancyCount: 0,
       }
     );
+    summary.periodCustomFeeStats = Array.from(feeStatsMap.values());
+    return summary;
   }, [propertyInvoices, selectedPeriod]);
 
   // API Mutations
@@ -430,6 +552,46 @@ export default function NhaTroDashboardPage() {
       propertyId: currentProperty.id,
       month: m,
       year: y,
+    });
+  };
+
+  const handleAddCustomFeeToPeriod = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentProperty || !selectedPeriod || !newFeeForm.name.trim()) return;
+    const [m, y] = selectedPeriod.split('-').map(Number);
+    setSavingNewFee(true);
+    try {
+      await postAction({
+        action: 'add_custom_fee_to_period',
+        propertyId: currentProperty.id,
+        month: m,
+        year: y,
+        fee: {
+          name: newFeeForm.name.trim(),
+          mode: newFeeForm.mode,
+          unit: newFeeForm.unit.trim() || 'tháng',
+          unitPrice: Number(newFeeForm.unitPrice || 0),
+          customQuantity: Number(newFeeForm.customQuantity || 1),
+        },
+        targetScope: newFeeForm.targetScope,
+        roomIds: newFeeForm.selectedRoomIds,
+        saveAsTemplate: newFeeForm.saveAsTemplate,
+      });
+      setNewFeeModalOpen(false);
+    } finally {
+      setSavingNewFee(false);
+    }
+  };
+
+  const handleRemoveCustomFeeFromPeriod = async (feeName: string) => {
+    if (!currentProperty || !selectedPeriod) return;
+    const [m, y] = selectedPeriod.split('-').map(Number);
+    await postAction({
+      action: 'remove_custom_fee_from_period',
+      propertyId: currentProperty.id,
+      month: m,
+      year: y,
+      feeName,
     });
   };
 
@@ -1279,16 +1441,76 @@ export default function NhaTroDashboardPage() {
                 </div>
 
                 {currentUser?.role !== 'TENANT' && (
-                  <button
-                    type="button"
-                    onClick={handleSyncOccupantsToSheet}
-                    className="inline-flex items-center gap-1.5 rounded-2xl border border-sky-200 bg-sky-50/80 px-3.5 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 transition-colors"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 text-sky-700" aria-hidden="true" />
-                    Đồng bộ số người ở từ Hồ sơ phòng
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewFeeForm((prev) => ({
+                          ...prev,
+                          selectedRoomIds: propertyRooms
+                            .filter((r) => r.status !== 'VACANT')
+                            .map((r) => r.id),
+                        }));
+                        setNewFeeModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-3.5 py-2 text-xs font-extrabold text-white shadow-xs hover:bg-indigo-700 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      Thêm khoản thu mới
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSyncOccupantsToSheet}
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-sky-200 bg-sky-50/80 px-3.5 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 transition-colors"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-sky-700" aria-hidden="true" />
+                      Đồng bộ số người ở từ Hồ sơ phòng
+                    </button>
+                  </div>
                 )}
               </div>
+
+              {/* Active Custom Fees in Current Period */}
+              {sheetSummary.periodCustomFeeStats.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-indigo-200/80 bg-indigo-50/60 px-3.5 py-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider text-indigo-900">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-600" aria-hidden="true" />
+                      Khoản thu mở rộng đang áp dụng kỳ {currMonth}/{currYear}:
+                    </span>
+                    {sheetSummary.periodCustomFeeStats.map((stat) => (
+                      <span
+                        key={stat.name}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-2.5 py-1 text-xs font-bold text-indigo-950 shadow-2xs"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setBillingSearch(stat.name)}
+                          className="hover:underline"
+                          title={`Bấm để lọc các phòng có khoản thu "${stat.name}"`}
+                        >
+                          {stat.name}: <span className="text-indigo-700 font-mono">{formatVND(stat.totalAmount)}đ</span>{' '}
+                          <span className="text-[10px] font-normal text-slate-500">({stat.roomCount} phòng)</span>
+                        </button>
+                        {currentUser?.role !== 'TENANT' && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCustomFeeFromPeriod(stat.name)}
+                            aria-label={`Gỡ khoản thu ${stat.name} khỏi kỳ ${currMonth}/${currYear}`}
+                            title={`Gỡ khoản thu "${stat.name}" khỏi tất cả phòng trong kỳ này`}
+                            className="ml-0.5 rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          >
+                            <X className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-xs font-extrabold text-indigo-900">
+                    Tổng thu phụ phí: {formatVND(sheetSummary.extraFeesTotal)} đ
+                  </span>
+                </div>
+              )}
 
               {/* Row 2: Search Input + Status Filter Pills + Sort Selector */}
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
@@ -1298,7 +1520,7 @@ export default function NhaTroDashboardPage() {
                     htmlFor={billingSearchId}
                     className="mb-1.5 block text-[11px] font-extrabold uppercase tracking-wider text-slate-600"
                   >
-                    Tìm nhanh phòng / người ở / SĐT / biển số (hỗ trợ gõ không dấu)
+                    Tìm nhanh phòng / người ở / SĐT / khoản thu (hỗ trợ gõ không dấu)
                   </label>
                   <div className="relative">
                     <Search
@@ -1322,7 +1544,7 @@ export default function NhaTroDashboardPage() {
                           }
                         }
                       }}
-                      placeholder="VD: P2, nguyen van, 090, 65B1, no cu..."
+                      placeholder="VD: P2, nguyen van, 090, may giat, thang may..."
                       className="w-full rounded-2xl border border-slate-300 bg-slate-50/80 py-2.5 pl-10 pr-9 text-xs font-medium text-slate-800 focus:border-teal-600 focus:bg-white"
                     />
                     {billingSearch && (
@@ -1515,6 +1737,9 @@ export default function NhaTroDashboardPage() {
                       {(currentProperty.lightingRate > 0 || sheetSummary.lightingTotal > 0) && (
                         <th className="py-3 px-2 text-right">Đèn VS</th>
                       )}
+                      {sheetSummary.hasAnyOtherFees && (
+                        <th className="py-3 px-2 text-right text-indigo-800">Khoản thu khác</th>
+                      )}
                       <th className="py-3 px-2 text-right">Tiền phòng</th>
                       <th className="py-3 px-2 text-right">Tổng cộng</th>
                       <th className="py-3 px-2 text-center">Trạng thái</th>
@@ -1524,7 +1749,7 @@ export default function NhaTroDashboardPage() {
                   <tbody className="divide-y divide-slate-200">
                     {currentSheetInvoices.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="py-10 text-center text-slate-500">
+                        <td colSpan={13} className="py-10 text-center text-slate-500">
                           <div className="mx-auto max-w-md space-y-2">
                             <p className="text-sm font-bold text-slate-700">
                               Không tìm thấy phòng hoặc hóa đơn nào khớp với bộ lọc hiện tại
@@ -1559,6 +1784,19 @@ export default function NhaTroDashboardPage() {
                       const hasExcelDiff =
                         inv.excelOriginalTotal !== null &&
                         inv.excelOriginalTotal !== inv.totalAmount;
+
+                      let parsedExtraFees: ExtraFeeItem[] = [];
+                      try {
+                        parsedExtraFees = JSON.parse(inv.extraFeesJson || '[]');
+                      } catch {
+                        parsedExtraFees = [];
+                      }
+                      const rowOtherTotal =
+                        inv.wifiAmount +
+                        inv.parkingAmount +
+                        inv.extraFeesAmount +
+                        inv.previousDebt -
+                        inv.discountAmount;
 
                       return (
                         <tr
@@ -1737,6 +1975,51 @@ export default function NhaTroDashboardPage() {
                             </td>
                           )}
 
+                          {/* Other / Custom Fees Column */}
+                          {sheetSummary.hasAnyOtherFees && (
+                            <td className="py-3 px-2 text-right">
+                              {isVacant || rowOtherTotal === 0 ? (
+                                <span className="text-slate-400">0</span>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  <div className="font-bold text-indigo-800">
+                                    {formatVND(rowOtherTotal)}
+                                  </div>
+                                  <div className="flex flex-wrap justify-end gap-1">
+                                    {inv.wifiAmount > 0 && (
+                                      <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800">
+                                        Wifi: {formatVND(inv.wifiAmount)}
+                                      </span>
+                                    )}
+                                    {inv.parkingAmount > 0 && (
+                                      <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800">
+                                        Xe: {formatVND(inv.parkingAmount)}
+                                      </span>
+                                    )}
+                                    {parsedExtraFees.map((ef) => (
+                                      <span
+                                        key={ef.id}
+                                        className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800"
+                                      >
+                                        {ef.name}: {formatVND(ef.amount)}
+                                      </span>
+                                    ))}
+                                    {inv.previousDebt > 0 && (
+                                      <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
+                                        Nợ cũ: +{formatVND(inv.previousDebt)}
+                                      </span>
+                                    )}
+                                    {inv.discountAmount > 0 && (
+                                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                                        Giảm: -{formatVND(inv.discountAmount)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                          )}
+
                           {/* Room Rent */}
                           <td className="py-3 px-2 text-right font-semibold text-slate-800">
                             {isVacant ? '0' : formatVND(inv.roomRent)}
@@ -1856,6 +2139,11 @@ export default function NhaTroDashboardPage() {
                       {(currentProperty.lightingRate > 0 || sheetSummary.lightingTotal > 0) && (
                         <td className="py-3.5 px-2 text-right font-mono">
                           {formatVND(sheetSummary.lightingTotal)}
+                        </td>
+                      )}
+                      {sheetSummary.hasAnyOtherFees && (
+                        <td className="py-3.5 px-2 text-right font-mono text-indigo-300">
+                          {formatVND(sheetSummary.otherFeesTotal)}
                         </td>
                       )}
                       <td className="py-3.5 px-2 text-right font-mono">
@@ -2767,7 +3055,13 @@ export default function NhaTroDashboardPage() {
                 e.preventDefault();
                 setSavingSettings(true);
                 try {
-                  await postAction({ action: 'update_property', property: propForm });
+                  await postAction({
+                    action: 'update_property',
+                    property: {
+                      ...propForm,
+                      customFeeTemplatesJson: JSON.stringify(propCustomTemplates),
+                    },
+                  });
                 } finally {
                   setSavingSettings(false);
                 }
@@ -3113,6 +3407,235 @@ export default function NhaTroDashboardPage() {
                 </div>
               </fieldset>
 
+              {/* Fieldset 3: Unlimited Custom Fee Templates */}
+              <fieldset className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 space-y-4">
+                <legend className="px-2 text-xs font-bold uppercase tracking-wider text-indigo-800">
+                  3. Danh Mục Các Khoản Thu Mới / Dịch Vụ Mở Rộng ({propCustomTemplates.length})
+                </legend>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-slate-600">
+                    Tự do tạo thêm các khoản thu định kỳ mới (VD: <strong>Máy giặt chung</strong>, <strong>Thang máy</strong>, <strong>Vệ sinh hành lang</strong>, <strong>Camera an ninh</strong>, <strong>Sạc xe điện</strong>...). Các khoản thu bật <em>&ldquo;Mặc định thu&rdquo;</em> sẽ tự động đưa vào hóa đơn khi lập kỳ tháng mới.
+                  </p>
+                  {currentUser?.role !== 'TENANT' && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPropCustomTemplates((prev) => [
+                          ...prev,
+                          {
+                            id: `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                            name: 'Khoản thu mới',
+                            mode: 'FIXED_PER_ROOM',
+                            unit: 'phòng',
+                            unitPrice: 50000,
+                            defaultActive: true,
+                          },
+                        ])
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-xs hover:bg-indigo-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                      Thêm khoản thu mới
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick Preset Buttons */}
+                {currentUser?.role !== 'TENANT' && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-indigo-900 mr-1">Thêm nhanh mẫu phổ biến:</span>
+                    {QUICK_CUSTOM_FEE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => {
+                          if (
+                            propCustomTemplates.some(
+                              (t) => t.name.trim().toLowerCase() === preset.name.toLowerCase()
+                            )
+                          ) {
+                            return;
+                          }
+                          setPropCustomTemplates((prev) => [
+                            ...prev,
+                            {
+                              id: `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                              name: preset.name,
+                              mode: preset.mode,
+                              unit: preset.unit,
+                              unitPrice: preset.unitPrice,
+                              defaultActive: true,
+                            },
+                          ]);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100 transition-colors"
+                      >
+                        <Sparkles className="h-3 w-3 text-indigo-600" aria-hidden="true" />
+                        + {preset.name} ({formatVND(preset.unitPrice)}đ/{preset.unit})
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {propCustomTemplates.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {propCustomTemplates.map((tpl, idx) => (
+                      <div
+                        key={tpl.id}
+                        className="grid grid-cols-1 gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-2xs sm:grid-cols-12 sm:items-center"
+                      >
+                        <div className="sm:col-span-3">
+                          <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                            Tên khoản thu mới
+                          </label>
+                          <input
+                            type="text"
+                            aria-label="Tên khoản thu mẫu"
+                            disabled={currentUser?.role === 'TENANT'}
+                            value={tpl.name}
+                            onChange={(e) =>
+                              setPropCustomTemplates((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, name: e.target.value } : item))
+                              )
+                            }
+                            placeholder="VD: Máy giặt chung"
+                            className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-900"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                            Cơ chế tính
+                          </label>
+                          <select
+                            aria-label="Cơ chế tính khoản thu mẫu"
+                            disabled={currentUser?.role === 'TENANT'}
+                            value={tpl.mode}
+                            onChange={(e) => {
+                              const nextMode = e.target.value as BillingMode;
+                              const nextUnit =
+                                nextMode === 'PER_PERSON'
+                                  ? 'người'
+                                  : nextMode === 'PER_QUANTITY'
+                                  ? 'xe'
+                                  : 'phòng';
+                              setPropCustomTemplates((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx ? { ...item, mode: nextMode, unit: nextUnit } : item
+                                )
+                              );
+                            }}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+                          >
+                            <option value="FIXED_PER_ROOM">Cố định theo phòng / tháng</option>
+                            <option value="PER_PERSON">Theo đầu người đang ở</option>
+                            <option value="PER_QUANTITY">Theo số lượng (xe / lượt)</option>
+                          </select>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                            Đơn giá (VNĐ)
+                          </label>
+                          <input
+                            type="number"
+                            aria-label="Đơn giá khoản thu mẫu"
+                            min={0}
+                            step={5000}
+                            disabled={currentUser?.role === 'TENANT'}
+                            value={tpl.unitPrice}
+                            onChange={(e) =>
+                              setPropCustomTemplates((prev) =>
+                                prev.map((item, i) =>
+                                  i === idx ? { ...item, unitPrice: Number(e.target.value) } : item
+                                )
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-indigo-900"
+                          />
+                        </div>
+                        <div className="sm:col-span-1">
+                          <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                            Đơn vị
+                          </label>
+                          <input
+                            type="text"
+                            aria-label="Đơn vị tính"
+                            disabled={currentUser?.role === 'TENANT'}
+                            value={tpl.unit}
+                            onChange={(e) =>
+                              setPropCustomTemplates((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, unit: e.target.value } : item))
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-2 sm:col-span-3 sm:justify-end sm:pt-4">
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-slate-700">
+                            <input
+                              type="checkbox"
+                              disabled={currentUser?.role === 'TENANT'}
+                              checked={tpl.defaultActive !== false}
+                              onChange={(e) =>
+                                setPropCustomTemplates((prev) =>
+                                  prev.map((item, i) =>
+                                    i === idx ? { ...item, defaultActive: e.target.checked } : item
+                                  )
+                                )
+                              }
+                              className="h-3.5 w-3.5 accent-indigo-600"
+                            />
+                            <span>Mặc định thu</span>
+                          </label>
+                          {currentUser?.role !== 'TENANT' && selectedPeriod && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const [m, y] = selectedPeriod.split('-').map(Number);
+                                await postAction({
+                                  action: 'add_custom_fee_to_period',
+                                  propertyId: currentProperty.id,
+                                  month: m,
+                                  year: y,
+                                  fee: {
+                                    name: tpl.name,
+                                    mode: tpl.mode,
+                                    unit: tpl.unit,
+                                    unitPrice: tpl.unitPrice,
+                                    customQuantity: 1,
+                                  },
+                                  targetScope: 'ALL_OCCUPIED',
+                                  saveAsTemplate: true,
+                                });
+                              }}
+                              title={`Áp dụng khoản thu "${tpl.name}" vào tất cả phòng đang ở của kỳ ${currMonth}/${currYear}`}
+                              className="rounded-lg bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100"
+                            >
+                              + Áp vào T{currMonth}
+                            </button>
+                          )}
+                          {currentUser?.role !== 'TENANT' && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPropCustomTemplates((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              aria-label={`Xóa khoản thu mẫu ${tpl.name}`}
+                              className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-800"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-indigo-200 bg-white/80 p-4 text-center text-xs text-slate-500">
+                    Chưa có khoản thu mở rộng nào được lưu mặc định. Bấm các nút gợi ý phía trên (Máy giặt, Thang máy, Vệ sinh...) hoặc bấm <strong>+ Thêm khoản thu mới</strong> để tạo.
+                  </div>
+                )}
+              </fieldset>
+
               {currentUser?.role !== 'TENANT' && (
                 <div className="flex justify-end">
                   <button
@@ -3200,6 +3723,7 @@ export default function NhaTroDashboardPage() {
         open={Boolean(editingInvoice)}
         onClose={() => setEditingInvoice(null)}
         invoice={editingInvoice}
+        customFeeTemplates={currentPropertyCustomTemplates}
         onSave={async (updated) => {
           await postAction({ action: 'save_invoice', invoice: updated });
         }}
@@ -3221,6 +3745,255 @@ export default function NhaTroDashboardPage() {
           await postAction({ action: 'delete_tenant', id, propertyId, roomId });
         }}
       />
+
+      {/* Add Custom Fee to Current Period Modal */}
+      <ModalDialog
+        open={newFeeModalOpen}
+        onClose={() => setNewFeeModalOpen(false)}
+        title={`Thêm Khoản Thu Mới Vào Kỳ Tháng ${currMonth}/${currYear}`}
+        subtitle={`Áp dụng nhanh khoản thu mới cho các phòng tại ${currentProperty.name} và tự động cộng vào Tổng tiền hóa đơn`}
+        maxWidthClass="max-w-xl"
+      >
+        <form onSubmit={handleAddCustomFeeToPeriod} className="space-y-4">
+          {/* Quick Preset Chips */}
+          <div>
+            <span className="mb-1.5 block text-xs font-bold text-slate-700">
+              Chọn nhanh khoản thu mẫu phổ biến:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                ...currentPropertyCustomTemplates.map((t) => ({
+                  name: t.name,
+                  mode: t.mode,
+                  unit: t.unit,
+                  unitPrice: t.unitPrice,
+                })),
+                ...QUICK_CUSTOM_FEE_PRESETS.filter(
+                  (p) =>
+                    !currentPropertyCustomTemplates.some(
+                      (t) => t.name.trim().toLowerCase() === p.name.toLowerCase()
+                    )
+                ),
+              ].map((preset) => (
+                <button
+                  key={preset.name}
+                  type="button"
+                  onClick={() =>
+                    setNewFeeForm((prev) => ({
+                      ...prev,
+                      name: preset.name,
+                      mode: preset.mode,
+                      unit: preset.unit,
+                      unitPrice: preset.unitPrice,
+                    }))
+                  }
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                    newFeeForm.name.trim().toLowerCase() === preset.name.toLowerCase()
+                      ? 'border-indigo-600 bg-indigo-600 text-white'
+                      : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50'
+                  }`}
+                >
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  {preset.name} ({formatVND(preset.unitPrice)}đ/{preset.unit})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="nf-name" className="mb-1 block text-xs font-semibold text-slate-700">
+                Tên khoản thu mới *
+              </label>
+              <input
+                id="nf-name"
+                type="text"
+                required
+                value={newFeeForm.name}
+                onChange={(e) => setNewFeeForm({ ...newFeeForm, name: e.target.value })}
+                placeholder="VD: Máy giặt chung, Thang máy..."
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="nf-mode" className="mb-1 block text-xs font-semibold text-slate-700">
+                Cơ chế tính tiền
+              </label>
+              <select
+                id="nf-mode"
+                value={newFeeForm.mode}
+                onChange={(e) => {
+                  const nextMode = e.target.value as BillingMode;
+                  const nextUnit =
+                    nextMode === 'PER_PERSON'
+                      ? 'người'
+                      : nextMode === 'PER_QUANTITY'
+                      ? 'xe'
+                      : 'phòng';
+                  setNewFeeForm({ ...newFeeForm, mode: nextMode, unit: nextUnit });
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+              >
+                <option value="FIXED_PER_ROOM">Cố định theo phòng (1 × Đơn giá)</option>
+                <option value="PER_PERSON">Theo đầu người (Số người ở × Đơn giá)</option>
+                <option value="PER_QUANTITY">Theo số lượng / xe (SL × Đơn giá)</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="nf-price" className="mb-1 block text-xs font-semibold text-slate-700">
+                Đơn giá (VNĐ) *
+              </label>
+              <input
+                id="nf-price"
+                type="number"
+                min={0}
+                step={5000}
+                required
+                value={newFeeForm.unitPrice}
+                onChange={(e) => setNewFeeForm({ ...newFeeForm, unitPrice: Number(e.target.value) })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-indigo-900"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="nf-unit" className="mb-1 block text-xs font-semibold text-slate-700">
+                  Đơn vị tính
+                </label>
+                <input
+                  id="nf-unit"
+                  type="text"
+                  value={newFeeForm.unit}
+                  onChange={(e) => setNewFeeForm({ ...newFeeForm, unit: e.target.value })}
+                  placeholder="phòng / người"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              {newFeeForm.mode === 'PER_QUANTITY' && (
+                <div>
+                  <label htmlFor="nf-qty" className="mb-1 block text-xs font-semibold text-slate-700">
+                    Số lượng
+                  </label>
+                  <input
+                    id="nf-qty"
+                    type="number"
+                    min={1}
+                    value={newFeeForm.customQuantity}
+                    onChange={(e) =>
+                      setNewFeeForm({ ...newFeeForm, customQuantity: Number(e.target.value) })
+                    }
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Scope Selection */}
+          <fieldset className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+            <legend className="px-1.5 text-xs font-bold uppercase tracking-wider text-slate-600">
+              Phạm vi phòng áp dụng trong kỳ Tháng {currMonth}/{currYear}
+            </legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <label
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                  newFeeForm.targetScope === 'ALL_OCCUPIED'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-950'
+                    : 'border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetScope"
+                  checked={newFeeForm.targetScope === 'ALL_OCCUPIED'}
+                  onChange={() => setNewFeeForm({ ...newFeeForm, targetScope: 'ALL_OCCUPIED' })}
+                  className="accent-indigo-600"
+                />
+                Tất cả phòng đang có người ở ({occupiedRoomsCount} phòng)
+              </label>
+              <label
+                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                  newFeeForm.targetScope === 'SELECTED_ROOMS'
+                    ? 'border-indigo-600 bg-indigo-50 text-indigo-950'
+                    : 'border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetScope"
+                  checked={newFeeForm.targetScope === 'SELECTED_ROOMS'}
+                  onChange={() => setNewFeeForm({ ...newFeeForm, targetScope: 'SELECTED_ROOMS' })}
+                  className="accent-indigo-600"
+                />
+                Chọn từng phòng cụ thể ({newFeeForm.selectedRoomIds.length} phòng)
+              </label>
+            </div>
+
+            {newFeeForm.targetScope === 'SELECTED_ROOMS' && (
+              <div className="grid grid-cols-2 gap-2 pt-1 sm:grid-cols-4">
+                {propertyRooms.map((rm) => {
+                  const checked = newFeeForm.selectedRoomIds.includes(rm.id);
+                  return (
+                    <label
+                      key={rm.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                        checked
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
+                          : 'border-slate-200 bg-white text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const nextIds = e.target.checked
+                            ? [...newFeeForm.selectedRoomIds, rm.id]
+                            : newFeeForm.selectedRoomIds.filter((id) => id !== rm.id);
+                          setNewFeeForm({ ...newFeeForm, selectedRoomIds: nextIds });
+                        }}
+                        className="accent-indigo-600"
+                      />
+                      Phòng {rm.roomNumber}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </fieldset>
+
+          <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 text-xs font-semibold text-indigo-950">
+            <input
+              type="checkbox"
+              checked={newFeeForm.saveAsTemplate}
+              onChange={(e) => setNewFeeForm({ ...newFeeForm, saveAsTemplate: e.target.checked })}
+              className="h-4 w-4 accent-indigo-600"
+            />
+            Lưu khoản thu này vào Danh mục mặc định của khu trọ để tự động áp dụng cho các tháng sau
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setNewFeeModalOpen(false)}
+              className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={savingNewFee}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {savingNewFee
+                ? 'Đang áp dụng...'
+                : `Áp dụng vào Kỳ Tháng ${currMonth}/${currYear}`}
+            </button>
+          </div>
+        </form>
+      </ModalDialog>
 
       {/* Create New Monthly Sheet Modal */}
       <ModalDialog

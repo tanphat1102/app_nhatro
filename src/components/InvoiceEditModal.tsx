@@ -1,19 +1,40 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { BillingMode, ExtraFeeItem, Invoice } from '@/types/nhatro';
+import { BillingMode, CustomFeeTemplate, ExtraFeeItem, Invoice } from '@/types/nhatro';
 import { ModalDialog } from './ModalDialog';
 import { formatVND } from './InvoiceReceiptModal';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 
 interface InvoiceEditModalProps {
   open: boolean;
   onClose: () => void;
   invoice: Invoice | null;
+  customFeeTemplates?: CustomFeeTemplate[];
   onSave: (updated: Invoice) => Promise<void>;
 }
 
-export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEditModalProps) {
+const DEFAULT_FEE_PRESETS: Array<{
+  name: string;
+  mode: BillingMode;
+  unit: string;
+  unitPrice: number;
+}> = [
+  { name: 'Máy giặt chung', mode: 'PER_PERSON', unit: 'người', unitPrice: 50000 },
+  { name: 'Thang máy', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 100000 },
+  { name: 'Vệ sinh hành lang', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 30000 },
+  { name: 'Camera an ninh', mode: 'FIXED_PER_ROOM', unit: 'phòng', unitPrice: 20000 },
+  { name: 'Sạc xe điện', mode: 'PER_QUANTITY', unit: 'xe', unitPrice: 150000 },
+  { name: 'Sửa chữa / Vật tư', mode: 'FIXED_PER_ROOM', unit: 'lần', unitPrice: 100000 },
+];
+
+export function InvoiceEditModal({
+  open,
+  onClose,
+  invoice,
+  customFeeTemplates = [],
+  onSave,
+}: InvoiceEditModalProps) {
   const [form, setForm] = useState<Invoice | null>(null);
   const [extraFees, setExtraFees] = useState<ExtraFeeItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -66,17 +87,28 @@ export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEdit
           Number(form.discountAmount || 0)
       );
 
-  const addExtraFee = () => {
+  const addExtraFee = (preset?: { name: string; mode: BillingMode; unit: string; unitPrice: number }) => {
+    const mode = preset?.mode || 'FIXED_PER_ROOM';
+    const unitPrice = preset?.unitPrice ?? 50000;
+    const quantity =
+      mode === 'PER_PERSON'
+        ? Math.max(1, Number(form.occupantCount || 1))
+        : mode === 'PER_QUANTITY'
+        ? Math.max(1, Number(form.vehicleCount || 1))
+        : 1;
+    const unit =
+      preset?.unit ||
+      (mode === 'PER_PERSON' ? 'người' : mode === 'PER_QUANTITY' ? 'lượt' : 'phòng');
     setExtraFees((prev) => [
       ...prev,
       {
-        id: 'ef_' + Date.now(),
-        name: 'Khoản thu phụ',
-        mode: 'FIXED_PER_ROOM',
-        unit: 'tháng',
-        unitPrice: 50000,
-        quantity: 1,
-        amount: 50000,
+        id: 'ef_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: preset?.name || 'Khoản thu mới',
+        mode,
+        unit,
+        unitPrice,
+        quantity,
+        amount: quantity * unitPrice,
       },
     ]);
   };
@@ -86,7 +118,18 @@ export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEdit
       prev.map((item, i) => {
         if (i !== idx) return item;
         const next = { ...item, ...patch };
-        next.amount = Number(next.quantity || 1) * Number(next.unitPrice || 0);
+        if (patch.mode) {
+          if (patch.mode === 'FIXED_PER_ROOM') {
+            next.quantity = 1;
+            next.unit = 'phòng';
+          } else if (patch.mode === 'PER_PERSON') {
+            next.quantity = Math.max(1, Number(form.occupantCount || 1));
+            next.unit = 'người';
+          } else if (patch.mode === 'PER_QUANTITY') {
+            next.unit = next.unit === 'phòng' || next.unit === 'người' ? 'lượt' : next.unit || 'lượt';
+          }
+        }
+        next.amount = Math.max(0, Number(next.quantity ?? 1)) * Math.max(0, Number(next.unitPrice ?? 0));
         return next;
       })
     );
@@ -95,6 +138,20 @@ export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEdit
   const removeExtraFee = (idx: number) => {
     setExtraFees((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  // Merge property templates + default presets without duplicates by name
+  const mergedPresets = [
+    ...customFeeTemplates.map((t) => ({
+      name: t.name,
+      mode: t.mode,
+      unit: t.unit,
+      unitPrice: t.unitPrice,
+      isPropertyTemplate: true,
+    })),
+    ...DEFAULT_FEE_PRESETS.filter(
+      (d) => !customFeeTemplates.some((t) => t.name.trim().toLowerCase() === d.name.toLowerCase())
+    ).map((d) => ({ ...d, isPropertyTemplate: false })),
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +259,21 @@ export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEdit
               type="number"
               min={0}
               value={form.occupantCount}
-              onChange={(e) => setForm({ ...form, occupantCount: Number(e.target.value) })}
+              onChange={(e) => {
+                const nextOcc = Number(e.target.value);
+                setForm({ ...form, occupantCount: nextOcc });
+                setExtraFees((prev) =>
+                  prev.map((ef) =>
+                    ef.mode === 'PER_PERSON'
+                      ? {
+                          ...ef,
+                          quantity: Math.max(0, nextOcc),
+                          amount: Math.max(0, nextOcc) * Number(ef.unitPrice || 0),
+                        }
+                      : ef
+                  )
+                );
+              }}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold"
             />
           </div>
@@ -545,65 +616,146 @@ export function InvoiceEditModal({ open, onClose, invoice, onSave }: InvoiceEdit
         </div>
 
         {/* Custom Extra Fees */}
-        <div className="rounded-xl border border-slate-200 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-              Các khoản thu phát sinh / tùy chỉnh thêm ({extraFees.length})
+        <fieldset className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4">
+          <legend className="px-2 text-xs font-bold uppercase tracking-wider text-indigo-800">
+            Các khoản thu mới / Phụ phí mở rộng ({extraFees.length})
+          </legend>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-slate-600">
+              Chọn nhanh khoản thu mẫu hoặc bấm <strong>+ Thêm khoản thu</strong> để tự đặt tên &amp; cơ chế tính:
             </span>
             <button
               type="button"
-              onClick={addExtraFee}
-              className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200"
+              onClick={() => addExtraFee()}
+              className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700"
             >
               <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              Thêm khoản thu
+              Thêm khoản thu mới
             </button>
           </div>
-          {extraFees.length > 0 && (
-            <div className="mt-3 space-y-2">
+
+          {/* 1-click preset chips */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {mergedPresets.map((preset) => (
+              <button
+                key={preset.name}
+                type="button"
+                onClick={() => addExtraFee(preset)}
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  preset.isPropertyTemplate
+                    ? 'border-indigo-300 bg-indigo-100/80 text-indigo-900 hover:bg-indigo-200'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800'
+                }`}
+              >
+                <Sparkles className="h-3 w-3 text-indigo-600" aria-hidden="true" />
+                + {preset.name} ({formatVND(preset.unitPrice)}đ/{preset.unit})
+              </button>
+            ))}
+          </div>
+
+          {extraFees.length > 0 ? (
+            <div className="mt-3.5 space-y-2.5">
               {extraFees.map((ef, idx) => (
-                <div key={ef.id} className="grid grid-cols-12 items-center gap-2">
-                  <input
-                    type="text"
-                    aria-label="Tên khoản thu"
-                    value={ef.name}
-                    onChange={(e) => updateExtraFee(idx, { name: e.target.value })}
-                    placeholder="Tên khoản thu (VD: Máy giặt)"
-                    className="col-span-5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs"
-                  />
-                  <input
-                    type="number"
-                    aria-label="Số lượng"
-                    min={1}
-                    value={ef.quantity}
-                    onChange={(e) => updateExtraFee(idx, { quantity: Number(e.target.value) })}
-                    className="col-span-2 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                  />
-                  <input
-                    type="number"
-                    aria-label="Đơn giá"
-                    min={0}
-                    step={5000}
-                    value={ef.unitPrice}
-                    onChange={(e) => updateExtraFee(idx, { unitPrice: Number(e.target.value) })}
-                    className="col-span-3 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                  />
-                  <div className="col-span-1 text-right text-xs font-bold text-slate-800">
-                    {formatVND(ef.amount)}
+                <div
+                  key={ef.id}
+                  className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-xs sm:grid-cols-12 sm:items-center"
+                >
+                  <div className="sm:col-span-3">
+                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                      Tên khoản thu
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Tên khoản thu"
+                      value={ef.name}
+                      onChange={(e) => updateExtraFee(idx, { name: e.target.value })}
+                      placeholder="VD: Máy giặt chung"
+                      className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-900"
+                    />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeExtraFee(idx)}
-                    aria-label="Xóa khoản thu"
-                    className="col-span-1 flex justify-end text-rose-600 hover:text-rose-800"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </button>
+                  <div className="sm:col-span-3">
+                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                      Cơ chế tính
+                    </label>
+                    <select
+                      aria-label="Cơ chế tính khoản thu"
+                      value={ef.mode || 'FIXED_PER_ROOM'}
+                      onChange={(e) => updateExtraFee(idx, { mode: e.target.value as BillingMode })}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-800"
+                    >
+                      <option value="FIXED_PER_ROOM">Trọn gói / Phòng</option>
+                      <option value="PER_PERSON">Theo đầu người ({form.occupantCount} người)</option>
+                      <option value="PER_QUANTITY">Theo số lượng / lượt</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 sm:col-span-2">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                        SL
+                      </label>
+                      <input
+                        type="number"
+                        aria-label="Số lượng"
+                        min={0}
+                        disabled={ef.mode === 'FIXED_PER_ROOM'}
+                        value={ef.quantity}
+                        onChange={(e) => updateExtraFee(idx, { quantity: Number(e.target.value) })}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold disabled:bg-slate-100 disabled:text-slate-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                        Đơn vị
+                      </label>
+                      <input
+                        type="text"
+                        aria-label="Đơn vị tính"
+                        value={ef.unit || 'tháng'}
+                        onChange={(e) => updateExtraFee(idx, { unit: e.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-0.5 block text-[10px] font-bold uppercase text-slate-500">
+                      Đơn giá (VNĐ)
+                    </label>
+                    <input
+                      type="number"
+                      aria-label="Đơn giá"
+                      min={0}
+                      step={5000}
+                      value={ef.unitPrice}
+                      onChange={(e) => updateExtraFee(idx, { unitPrice: Number(e.target.value) })}
+                      className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 pt-2 sm:col-span-2 sm:justify-end sm:pt-4">
+                    <div className="text-right text-xs font-extrabold text-indigo-900">
+                      {formatVND(ef.amount)}đ
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeExtraFee(idx)}
+                      aria-label={`Xóa khoản thu ${ef.name}`}
+                      className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-800"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               ))}
+              <div className="flex items-center justify-between rounded-lg bg-indigo-100/70 px-3 py-2 text-xs font-bold text-indigo-950">
+                <span>Tổng các khoản thu mới / phụ phí mở rộng:</span>
+                <span>{formatVND(extraFeesTotal)} VNĐ</span>
+              </div>
             </div>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-indigo-200 bg-white/70 px-3 py-2.5 text-center text-xs text-slate-500">
+              Chưa có khoản thu phụ nào cho phòng này. Bấm các nút gợi ý phía trên hoặc &ldquo;Thêm khoản thu mới&rdquo; để bổ sung.
+            </p>
           )}
-        </div>
+        </fieldset>
 
         {/* Summary & Save */}
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-slate-900 p-4 text-white">

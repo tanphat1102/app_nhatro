@@ -15,6 +15,15 @@ export interface ExtraFeeItem {
   amount: number;
 }
 
+export interface CustomFeeTemplate {
+  id: string;
+  name: string;
+  mode: BillingMode;
+  unit: string;
+  unitPrice: number;
+  defaultActive: boolean;
+}
+
 export interface Property {
   id: number;
   code: string;
@@ -38,6 +47,7 @@ export interface Property {
   wifiMode: BillingMode;
   parkingRate: number;
   parkingMode: BillingMode;
+  customFeeTemplatesJson?: string;
 }
 
 export interface DocumentImageItem {

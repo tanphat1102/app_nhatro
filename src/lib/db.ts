@@ -73,7 +73,8 @@ function initSchema(db: DatabaseSync) {
       wifi_rate INTEGER NOT NULL DEFAULT 0,
       wifi_mode TEXT NOT NULL DEFAULT 'FREE',
       parking_rate INTEGER NOT NULL DEFAULT 0,
-      parking_mode TEXT NOT NULL DEFAULT 'FREE'
+      parking_mode TEXT NOT NULL DEFAULT 'FREE',
+      custom_fee_templates_json TEXT NOT NULL DEFAULT '[]'
     );
 
     CREATE TABLE IF NOT EXISTS rooms (
@@ -190,6 +191,7 @@ function initSchema(db: DatabaseSync) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
     }
   };
+  ensureColumn('properties', 'custom_fee_templates_json', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn('rooms', 'contract_images_json', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn('tenants', 'avatar_url', "TEXT NOT NULL DEFAULT ''");
   ensureColumn('tenants', 'cccd_front_url', "TEXT NOT NULL DEFAULT ''");
@@ -850,6 +852,7 @@ export function getAllData() {
     wifiMode: String(p.wifi_mode) as BillingMode,
     parkingRate: Number(p.parking_rate),
     parkingMode: String(p.parking_mode) as BillingMode,
+    customFeeTemplatesJson: String(p.custom_fee_templates_json || '[]'),
   }));
 
   const roomsRows = db.prepare('SELECT * FROM rooms ORDER BY property_id ASC, CAST(room_number AS INTEGER) ASC').all() as Record<string, unknown>[];
@@ -991,9 +994,11 @@ async function ensureNeonSchema(sql: NonNullable<ReturnType<typeof getNeonClient
         wifi_rate INTEGER NOT NULL,
         wifi_mode TEXT NOT NULL,
         parking_rate INTEGER NOT NULL,
-        parking_mode TEXT NOT NULL
+        parking_mode TEXT NOT NULL,
+        custom_fee_templates_json TEXT NOT NULL DEFAULT '[]'
       )
     `,
+    sql`ALTER TABLE properties ADD COLUMN IF NOT EXISTS custom_fee_templates_json TEXT NOT NULL DEFAULT '[]'`,
     sql`
       CREATE TABLE IF NOT EXISTS rooms (
         id INTEGER PRIMARY KEY,
@@ -1196,7 +1201,8 @@ export async function syncToNeon(): Promise<void> {
           INSERT INTO properties (
             id, code, name, address, bank_name, bank_bin, bank_account_number, bank_account_holder,
             payment_note, general_note, electricity_rate, electricity_mode, water_rate, water_mode,
-            trash_rate, trash_mode, lighting_rate, lighting_mode, wifi_rate, wifi_mode, parking_rate, parking_mode
+            trash_rate, trash_mode, lighting_rate, lighting_mode, wifi_rate, wifi_mode, parking_rate, parking_mode,
+            custom_fee_templates_json
           ) VALUES (
             ${Number(p.id)}, ${String(p.code)}, ${String(p.name)}, ${String(p.address)},
             ${String(p.bank_name)}, ${String(p.bank_bin)}, ${String(p.bank_account_number)}, ${String(p.bank_account_holder)},
@@ -1206,7 +1212,8 @@ export async function syncToNeon(): Promise<void> {
             ${Number(p.trash_rate)}, ${String(p.trash_mode)},
             ${Number(p.lighting_rate)}, ${String(p.lighting_mode)},
             ${Number(p.wifi_rate)}, ${String(p.wifi_mode)},
-            ${Number(p.parking_rate)}, ${String(p.parking_mode)}
+            ${Number(p.parking_rate)}, ${String(p.parking_mode)},
+            ${String(p.custom_fee_templates_json || '[]')}
           )
         `
       ),
