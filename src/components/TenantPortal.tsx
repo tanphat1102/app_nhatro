@@ -1,16 +1,23 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Invoice, Property, Room, Tenant, User } from '@/types/nhatro';
+import { DocumentImageItem, Invoice, Property, Room, Tenant, User } from '@/types/nhatro';
 import { formatVND } from './InvoiceReceiptModal';
+import { DocumentLightboxModal, LightboxPreviewData } from './DocumentLightboxModal';
+import {
+  compressImageFile,
+  generateSampleDocumentDataUrl,
+  parseDocumentImages,
+} from '@/lib/imageUtils';
 import {
   AlertCircle,
   Building2,
-  Calendar,
+  Camera,
   CheckCircle2,
   Copy,
   CreditCard,
-  Droplets,
+  Eye,
+  FileCheck2,
   FileText,
   History,
   Home,
@@ -18,11 +25,10 @@ import {
   Printer,
   QrCode,
   Send,
-  ShieldCheck,
-  UserCheck,
+  Sparkles,
+  Trash2,
   Users,
   Wallet,
-  Zap,
 } from 'lucide-react';
 
 interface TenantPortalProps {
@@ -33,6 +39,12 @@ interface TenantPortalProps {
   invoices: Invoice[];
   onOpenReceipt: (inv: Invoice) => void;
   onViewAllBoard: () => void;
+  onUpdateTenantDocuments?: (payload: {
+    tenantId: number;
+    cccdFrontUrl?: string;
+    cccdBackUrl?: string;
+    contractImagesJson?: string;
+  }) => Promise<void>;
 }
 
 export function TenantPortal({
@@ -43,10 +55,13 @@ export function TenantPortal({
   invoices,
   onOpenReceipt,
   onViewAllBoard,
+  onUpdateTenantDocuments,
 }: TenantPortalProps) {
   const [copiedField, setCopiedField] = useState<string>('');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState<string>('');
+  const [lightboxPreview, setLightboxPreview] = useState<LightboxPreviewData | null>(null);
 
   if (!property || !room) {
     return (
@@ -79,6 +94,15 @@ export function TenantPortal({
 
   // Room's active tenants
   const roomTenants = tenants.filter((t) => t.roomId === room.id && t.isActive);
+  const myTenantProfile =
+    roomTenants.find((t) => t.id === user.tenantId) ||
+    roomTenants.find((t) => t.phone && t.phone === user.phone) ||
+    roomTenants.find((t) => t.isRepresentative) ||
+    roomTenants[0] ||
+    null;
+
+  const roomContractImages = parseDocumentImages(room.contractImagesJson);
+  const myContractImages = parseDocumentImages(myTenantProfile?.contractImagesJson);
 
   const elecDiff = latestInvoice ? Math.max(0, latestInvoice.elecNew - latestInvoice.elecOld) : 0;
   const waterDiff = latestInvoice ? Math.max(0, latestInvoice.waterNew - latestInvoice.waterOld) : 0;
@@ -114,6 +138,47 @@ export function TenantPortal({
     setFeedbackSent(true);
     setFeedbackText('');
     setTimeout(() => setFeedbackSent(false), 4000);
+  };
+
+  const handleUploadMyCccd = async (
+    field: 'cccdFrontUrl' | 'cccdBackUrl',
+    files: FileList | null
+  ) => {
+    if (!files || files.length === 0 || !myTenantProfile || !onUpdateTenantDocuments) return;
+    setUploadingDoc(field);
+    try {
+      const dataUrl = await compressImageFile(files[0]);
+      await onUpdateTenantDocuments({
+        tenantId: myTenantProfile.id,
+        [field]: dataUrl,
+      });
+    } finally {
+      setUploadingDoc('');
+    }
+  };
+
+  const handleUploadMyContract = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !myTenantProfile || !onUpdateTenantDocuments) return;
+    setUploadingDoc('contract');
+    try {
+      const added: DocumentImageItem[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const dataUrl = await compressImageFile(files[i]);
+        added.push({
+          id: `tp_${Date.now()}_${i}`,
+          title: files[i].name.replace(/\.[^/.]+$/, '') || `Hợp đồng / Tạm trú #${myContractImages.length + i + 1}`,
+          dataUrl,
+          uploadedAt: new Date().toLocaleDateString('vi-VN'),
+        });
+      }
+      const nextList = [...myContractImages, ...added];
+      await onUpdateTenantDocuments({
+        tenantId: myTenantProfile.id,
+        contractImagesJson: JSON.stringify(nextList),
+      });
+    } finally {
+      setUploadingDoc('');
+    }
   };
 
   return (
@@ -406,6 +471,333 @@ export function TenantPortal({
         </div>
       )}
 
+      {/* CCCD & Rental Contract Upload / Storage Section for Tenant */}
+      {myTenantProfile && (
+        <div className="rounded-2xl border border-teal-200 bg-white p-6 shadow-xs space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-base font-extrabold text-slate-900">
+                <FileCheck2 className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                Hồ Sơ Căn Cước Công Dân (CCCD) & Hợp Đồng Thuê Phòng {room.roomNumber}
+              </h3>
+              <p className="text-xs text-slate-500">
+                Tải lên hoặc xem lại hình ảnh CCCD 2 mặt và hợp đồng thuê trọ để phục vụ đăng ký tạm trú Công an.
+              </p>
+            </div>
+
+            {(myTenantProfile.cccdFrontUrl ||
+              myTenantProfile.cccdBackUrl ||
+              myContractImages.length > 0 ||
+              roomContractImages.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const imgs: LightboxPreviewData['images'] = [];
+                  if (myTenantProfile.cccdFrontUrl) {
+                    imgs.push({
+                      label: `CCCD Mặt Trước — ${myTenantProfile.fullName}`,
+                      dataUrl: myTenantProfile.cccdFrontUrl,
+                    });
+                  }
+                  if (myTenantProfile.cccdBackUrl) {
+                    imgs.push({
+                      label: `CCCD Mặt Sau — ${myTenantProfile.fullName}`,
+                      dataUrl: myTenantProfile.cccdBackUrl,
+                    });
+                  }
+                  for (const c of myContractImages) {
+                    imgs.push({ label: c.title, dataUrl: c.dataUrl, uploadedAt: c.uploadedAt });
+                  }
+                  for (const rc of roomContractImages) {
+                    imgs.push({ label: rc.title, dataUrl: rc.dataUrl, uploadedAt: rc.uploadedAt });
+                  }
+                  setLightboxPreview({
+                    title: `Toàn Bộ Hồ Sơ CCCD & Hợp Đồng — Phòng ${room.roomNumber}`,
+                    subtitle: `${myTenantProfile.fullName} • Số CCCD: ${myTenantProfile.cccd || '—'}`,
+                    images: imgs,
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-teal-800"
+              >
+                <Eye className="h-4 w-4" aria-hidden="true" />
+                Xem toàn bộ ảnh giấy tờ
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {/* CCCD Front */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="tp-cccd-front"
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                >
+                  <CreditCard className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                  Ảnh CCCD Mặt Trước
+                </label>
+                {onUpdateTenantDocuments && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const sample = generateSampleDocumentDataUrl('CCCD_FRONT', {
+                        fullName: myTenantProfile.fullName,
+                        cccd: myTenantProfile.cccd,
+                        birthYear: myTenantProfile.birthYear,
+                        gender: myTenantProfile.gender,
+                        hometown: myTenantProfile.hometown,
+                      });
+                      await onUpdateTenantDocuments({
+                        tenantId: myTenantProfile.id,
+                        cccdFrontUrl: sample,
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    Ảnh mẫu
+                  </button>
+                )}
+              </div>
+
+              <input
+                id="tp-cccd-front"
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleUploadMyCccd('cccdFrontUrl', e.target.files)}
+                className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-teal-700 file:px-2.5 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-teal-800 cursor-pointer"
+              />
+
+              {uploadingDoc === 'cccdFrontUrl' && (
+                <p className="text-xs font-semibold text-teal-700">Đang nén và lưu ảnh...</p>
+              )}
+
+              {myTenantProfile.cccdFrontUrl ? (
+                <div className="space-y-2">
+                  <img
+                    src={myTenantProfile.cccdFrontUrl}
+                    alt={`CCCD mặt trước của ${myTenantProfile.fullName}`}
+                    className="h-32 w-full object-contain rounded-lg border border-slate-200 bg-white p-1"
+                  />
+                  <div className="flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLightboxPreview({
+                          title: `CCCD Mặt Trước — ${myTenantProfile.fullName}`,
+                          images: [
+                            {
+                              label: `CCCD Mặt Trước (${myTenantProfile.cccd})`,
+                              dataUrl: myTenantProfile.cccdFrontUrl,
+                            },
+                          ],
+                        })
+                      }
+                      className="font-bold text-teal-700 hover:underline"
+                    >
+                      Xem phóng to
+                    </button>
+                    {onUpdateTenantDocuments && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateTenantDocuments({
+                            tenantId: myTenantProfile.id,
+                            cccdFrontUrl: '',
+                          })
+                        }
+                        className="text-rose-600 hover:underline"
+                      >
+                        Xóa
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white py-6 text-center text-xs text-slate-400">
+                  Chưa tải lên CCCD mặt trước
+                </div>
+              )}
+            </div>
+
+            {/* CCCD Back */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="tp-cccd-back"
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                >
+                  <CreditCard className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                  Ảnh CCCD Mặt Sau
+                </label>
+                {onUpdateTenantDocuments && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const sample = generateSampleDocumentDataUrl('CCCD_BACK', {
+                        fullName: myTenantProfile.fullName,
+                        cccd: myTenantProfile.cccd,
+                      });
+                      await onUpdateTenantDocuments({
+                        tenantId: myTenantProfile.id,
+                        cccdBackUrl: sample,
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    Ảnh mẫu
+                  </button>
+                )}
+              </div>
+
+              <input
+                id="tp-cccd-back"
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleUploadMyCccd('cccdBackUrl', e.target.files)}
+                className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-teal-700 file:px-2.5 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-teal-800 cursor-pointer"
+              />
+
+              {uploadingDoc === 'cccdBackUrl' && (
+                <p className="text-xs font-semibold text-teal-700">Đang nén và lưu ảnh...</p>
+              )}
+
+              {myTenantProfile.cccdBackUrl ? (
+                <div className="space-y-2">
+                  <img
+                    src={myTenantProfile.cccdBackUrl}
+                    alt={`CCCD mặt sau của ${myTenantProfile.fullName}`}
+                    className="h-32 w-full object-contain rounded-lg border border-slate-200 bg-white p-1"
+                  />
+                  <div className="flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLightboxPreview({
+                          title: `CCCD Mặt Sau — ${myTenantProfile.fullName}`,
+                          images: [
+                            {
+                              label: `CCCD Mặt Sau (${myTenantProfile.fullName})`,
+                              dataUrl: myTenantProfile.cccdBackUrl,
+                            },
+                          ],
+                        })
+                      }
+                      className="font-bold text-teal-700 hover:underline"
+                    >
+                      Xem phóng to
+                    </button>
+                    {onUpdateTenantDocuments && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateTenantDocuments({
+                            tenantId: myTenantProfile.id,
+                            cccdBackUrl: '',
+                          })
+                        }
+                        className="text-rose-600 hover:underline"
+                      >
+                        Xóa
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white py-6 text-center text-xs text-slate-400">
+                  Chưa tải lên CCCD mặt sau
+                </div>
+              )}
+            </div>
+
+            {/* Contract & Residence Documents */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="tp-contract-files"
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                >
+                  <FileText className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                  Ảnh Hợp Đồng / Tạm Trú
+                </label>
+                {onUpdateTenantDocuments && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const sampleUrl = generateSampleDocumentDataUrl('CONTRACT', {
+                        fullName: myTenantProfile.fullName,
+                        cccd: myTenantProfile.cccd,
+                        roomNumber: room.roomNumber,
+                        propertyName: property.name,
+                        baseRent: room.baseRent,
+                      });
+                      const nextList: DocumentImageItem[] = [
+                        ...myContractImages,
+                        {
+                          id: `tp_sample_${Date.now()}`,
+                          title: `Hợp đồng thuê Phòng ${room.roomNumber}`,
+                          dataUrl: sampleUrl,
+                          uploadedAt: new Date().toLocaleDateString('vi-VN'),
+                        },
+                      ];
+                      await onUpdateTenantDocuments({
+                        tenantId: myTenantProfile.id,
+                        contractImagesJson: JSON.stringify(nextList),
+                      });
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline"
+                  >
+                    <Sparkles className="h-3 w-3" aria-hidden="true" />
+                    + HĐ mẫu
+                  </button>
+                )}
+              </div>
+
+              <input
+                id="tp-contract-files"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => handleUploadMyContract(e.target.files)}
+                className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-800 file:px-2.5 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-slate-900 cursor-pointer"
+              />
+
+              {myContractImages.length + roomContractImages.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {[...roomContractImages, ...myContractImages].map((doc) => (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onClick={() =>
+                        setLightboxPreview({
+                          title: doc.title,
+                          images: [{ label: doc.title, dataUrl: doc.dataUrl, uploadedAt: doc.uploadedAt }],
+                        })
+                      }
+                      className="group overflow-hidden rounded-lg border border-slate-200 bg-white p-1.5 text-left hover:border-teal-600"
+                    >
+                      <img
+                        src={doc.dataUrl}
+                        alt={doc.title}
+                        className="h-20 w-full object-cover rounded"
+                      />
+                      <div className="mt-1 truncate text-[10px] font-bold text-slate-700 group-hover:text-teal-700">
+                        {doc.title}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white py-6 text-center text-xs text-slate-400">
+                  Chưa có ảnh hợp đồng / giấy tạm trú
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Room Members & Incident Report Section */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Room Members */}
@@ -471,7 +863,11 @@ export function TenantPortal({
           </p>
 
           <form onSubmit={handleSendFeedback} className="space-y-3 pt-1">
+            <label htmlFor="tp-feedback-text" className="visually-hidden">
+              Nội dung báo hỏng thiết bị hoặc phản ánh
+            </label>
             <textarea
+              id="tp-feedback-text"
               rows={3}
               required
               value={feedbackText}
@@ -565,6 +961,11 @@ export function TenantPortal({
           </div>
         </div>
       )}
+
+      <DocumentLightboxModal
+        preview={lightboxPreview}
+        onClose={() => setLightboxPreview(null)}
+      />
     </div>
   );
 }

@@ -40,6 +40,13 @@ export interface Property {
   parkingMode: BillingMode;
 }
 
+export interface DocumentImageItem {
+  id: string;
+  title: string;
+  dataUrl: string;
+  uploadedAt: string;
+}
+
 export interface Room {
   id: number;
   propertyId: number;
@@ -60,6 +67,7 @@ export interface Room {
   currentWaterIndex: number;
   defaultOccupants: number;
   note: string;
+  contractImagesJson: string;
 }
 
 export interface Tenant {
@@ -80,6 +88,9 @@ export interface Tenant {
   tempResidenceStatus: 'REGISTERED' | 'PENDING' | 'EXPIRED';
   isActive: boolean;
   notes: string;
+  cccdFrontUrl: string;
+  cccdBackUrl: string;
+  contractImagesJson: string;
 }
 
 export interface Invoice {

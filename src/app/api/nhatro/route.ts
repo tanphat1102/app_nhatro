@@ -164,6 +164,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'upsert_room') {
       const r = body.room;
+      const contractImagesStr =
+        typeof r.contractImagesJson === 'string'
+          ? r.contractImagesJson
+          : JSON.stringify(r.contractImagesJson || []);
       if (r.id) {
         db.prepare(`
           UPDATE rooms SET
@@ -173,7 +177,7 @@ export async function POST(req: NextRequest) {
             lighting_mode_override = ?, trash_mode_override = ?,
             wifi_mode_override = ?, parking_mode_override = ?,
             current_elec_index = ?, current_water_index = ?,
-            default_occupants = ?, note = ?
+            default_occupants = ?, note = ?, contract_images_json = ?
           WHERE id = ?
         `).run(
           String(r.roomNumber),
@@ -193,6 +197,7 @@ export async function POST(req: NextRequest) {
           Number(r.currentWaterIndex || 0),
           Number(r.defaultOccupants || 0),
           String(r.note || ''),
+          contractImagesStr,
           Number(r.id)
         );
       } else {
@@ -203,8 +208,8 @@ export async function POST(req: NextRequest) {
             water_mode_override, water_rate_override,
             lighting_mode_override, trash_mode_override,
             wifi_mode_override, parking_mode_override,
-            current_elec_index, current_water_index, default_occupants, note
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            current_elec_index, current_water_index, default_occupants, note, contract_images_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(r.propertyId),
           String(r.roomNumber),
@@ -223,7 +228,8 @@ export async function POST(req: NextRequest) {
           Number(r.currentElecIndex || 0),
           Number(r.currentWaterIndex || 0),
           Number(r.defaultOccupants || 1),
-          String(r.note || '')
+          String(r.note || ''),
+          contractImagesStr
         );
       }
       return await syncAndReturnAllData();
@@ -231,6 +237,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'upsert_tenant') {
       const t = body.tenant;
+      const contractImagesStr =
+        typeof t.contractImagesJson === 'string'
+          ? t.contractImagesJson
+          : JSON.stringify(t.contractImagesJson || []);
       if (t.isRepresentative) {
         db.prepare('UPDATE tenants SET is_representative = 0 WHERE room_id = ?').run(Number(t.roomId));
       }
@@ -239,7 +249,8 @@ export async function POST(req: NextRequest) {
           UPDATE tenants SET
             room_id = ?, full_name = ?, phone = ?, cccd = ?, birth_year = ?, gender = ?,
             hometown = ?, occupation = ?, vehicle_plate = ?, is_representative = ?,
-            move_in_date = ?, move_out_date = ?, temp_residence_status = ?, is_active = ?, notes = ?
+            move_in_date = ?, move_out_date = ?, temp_residence_status = ?, is_active = ?, notes = ?,
+            cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
           WHERE id = ?
         `).run(
           Number(t.roomId),
@@ -257,6 +268,9 @@ export async function POST(req: NextRequest) {
           String(t.tempResidenceStatus || 'REGISTERED'),
           t.isActive ? 1 : 0,
           String(t.notes || ''),
+          String(t.cccdFrontUrl || ''),
+          String(t.cccdBackUrl || ''),
+          contractImagesStr,
           Number(t.id)
         );
       } else {
@@ -264,8 +278,9 @@ export async function POST(req: NextRequest) {
           INSERT INTO tenants (
             property_id, room_id, full_name, phone, cccd, birth_year, gender,
             hometown, occupation, vehicle_plate, is_representative,
-            move_in_date, move_out_date, temp_residence_status, is_active, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            move_in_date, move_out_date, temp_residence_status, is_active, notes,
+            cccd_front_url, cccd_back_url, contract_images_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(t.propertyId),
           Number(t.roomId),
@@ -282,10 +297,36 @@ export async function POST(req: NextRequest) {
           String(t.moveOutDate || ''),
           String(t.tempResidenceStatus || 'REGISTERED'),
           t.isActive !== false ? 1 : 0,
-          String(t.notes || '')
+          String(t.notes || ''),
+          String(t.cccdFrontUrl || ''),
+          String(t.cccdBackUrl || ''),
+          contractImagesStr
         );
       }
       recalcRoomOccupants(Number(t.propertyId), Number(t.roomId));
+      return await syncAndReturnAllData();
+    }
+
+    if (action === 'update_tenant_documents') {
+      const { tenantId, cccdFrontUrl, cccdBackUrl, contractImagesJson } = body;
+      const existing = db.prepare('SELECT * FROM tenants WHERE id = ?').get(Number(tenantId)) as Record<string, unknown> | undefined;
+      if (!existing) {
+        return NextResponse.json({ error: 'Không tìm thấy hồ sơ khách thuê' }, { status: 404 });
+      }
+      const nextFront = cccdFrontUrl !== undefined ? String(cccdFrontUrl) : String(existing.cccd_front_url || '');
+      const nextBack = cccdBackUrl !== undefined ? String(cccdBackUrl) : String(existing.cccd_back_url || '');
+      const nextContracts =
+        contractImagesJson !== undefined
+          ? typeof contractImagesJson === 'string'
+            ? contractImagesJson
+            : JSON.stringify(contractImagesJson)
+          : String(existing.contract_images_json || '[]');
+
+      db.prepare(`
+        UPDATE tenants
+        SET cccd_front_url = ?, cccd_back_url = ?, contract_images_json = ?
+        WHERE id = ?
+      `).run(nextFront, nextBack, nextContracts, Number(tenantId));
       return await syncAndReturnAllData();
     }
 

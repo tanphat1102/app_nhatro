@@ -96,6 +96,7 @@ function initSchema(db: DatabaseSync) {
       current_water_index INTEGER NOT NULL DEFAULT 0,
       default_occupants INTEGER NOT NULL DEFAULT 1,
       note TEXT NOT NULL DEFAULT '',
+      contract_images_json TEXT NOT NULL DEFAULT '[]',
       FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
     );
 
@@ -117,6 +118,9 @@ function initSchema(db: DatabaseSync) {
       temp_residence_status TEXT NOT NULL DEFAULT 'REGISTERED',
       is_active INTEGER NOT NULL DEFAULT 1,
       notes TEXT NOT NULL DEFAULT '',
+      cccd_front_url TEXT NOT NULL DEFAULT '',
+      cccd_back_url TEXT NOT NULL DEFAULT '',
+      contract_images_json TEXT NOT NULL DEFAULT '[]',
       FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
     );
@@ -177,6 +181,18 @@ function initSchema(db: DatabaseSync) {
       FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE SET NULL
     );
   `);
+
+  // Ensure new columns exist on already-created / restored SQLite databases
+  const ensureColumn = (table: string, col: string, def: string) => {
+    const info = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!info.some((c) => c.name === col)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+    }
+  };
+  ensureColumn('rooms', 'contract_images_json', "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn('tenants', 'cccd_front_url', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('tenants', 'cccd_back_url', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn('tenants', 'contract_images_json', "TEXT NOT NULL DEFAULT '[]'");
 }
 
 function seedIfEmpty(db: DatabaseSync) {
@@ -855,6 +871,7 @@ export function getAllData() {
     currentWaterIndex: Number(r.current_water_index),
     defaultOccupants: Number(r.default_occupants),
     note: String(r.note || ''),
+    contractImagesJson: String(r.contract_images_json || '[]'),
   }));
 
   const tenantsRows = db.prepare('SELECT * FROM tenants ORDER BY property_id ASC, room_id ASC, is_active DESC, is_representative DESC, id ASC').all() as Record<string, unknown>[];
@@ -876,6 +893,9 @@ export function getAllData() {
     tempResidenceStatus: String(t.temp_residence_status || 'REGISTERED') as Tenant['tempResidenceStatus'],
     isActive: Boolean(t.is_active),
     notes: String(t.notes || ''),
+    cccdFrontUrl: String(t.cccd_front_url || ''),
+    cccdBackUrl: String(t.cccd_back_url || ''),
+    contractImagesJson: String(t.contract_images_json || '[]'),
   }));
 
   const invoicesRows = db.prepare(`
@@ -991,9 +1011,11 @@ async function ensureNeonSchema(sql: NonNullable<ReturnType<typeof getNeonClient
         current_elec_index INTEGER NOT NULL,
         current_water_index INTEGER NOT NULL,
         default_occupants INTEGER NOT NULL,
-        note TEXT NOT NULL
+        note TEXT NOT NULL,
+        contract_images_json TEXT NOT NULL DEFAULT '[]'
       )
     `,
+    sql`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS contract_images_json TEXT NOT NULL DEFAULT '[]'`,
     sql`
       CREATE TABLE IF NOT EXISTS tenants (
         id INTEGER PRIMARY KEY,
@@ -1012,9 +1034,15 @@ async function ensureNeonSchema(sql: NonNullable<ReturnType<typeof getNeonClient
         move_out_date TEXT NOT NULL,
         temp_residence_status TEXT NOT NULL,
         is_active INTEGER NOT NULL,
-        notes TEXT NOT NULL
+        notes TEXT NOT NULL,
+        cccd_front_url TEXT NOT NULL DEFAULT '',
+        cccd_back_url TEXT NOT NULL DEFAULT '',
+        contract_images_json TEXT NOT NULL DEFAULT '[]'
       )
     `,
+    sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cccd_front_url TEXT NOT NULL DEFAULT ''`,
+    sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cccd_back_url TEXT NOT NULL DEFAULT ''`,
+    sql`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS contract_images_json TEXT NOT NULL DEFAULT '[]'`,
     sql`
       CREATE TABLE IF NOT EXISTS invoices (
         id INTEGER PRIMARY KEY,
@@ -1183,7 +1211,7 @@ export async function syncToNeon(): Promise<void> {
             id, property_id, room_number, old_room_number, base_rent, deposit_amount,
             contract_start_date, contract_end_date, status, water_mode_override, water_rate_override,
             lighting_mode_override, trash_mode_override, wifi_mode_override, parking_mode_override,
-            current_elec_index, current_water_index, default_occupants, note
+            current_elec_index, current_water_index, default_occupants, note, contract_images_json
           ) VALUES (
             ${Number(r.id)}, ${Number(r.property_id)}, ${String(r.room_number)}, ${String(r.old_room_number)},
             ${Number(r.base_rent)}, ${Number(r.deposit_amount)}, ${String(r.contract_start_date)}, ${String(r.contract_end_date)},
@@ -1191,7 +1219,8 @@ export async function syncToNeon(): Promise<void> {
             ${r.water_rate_override !== null ? Number(r.water_rate_override) : null},
             ${String(r.lighting_mode_override)}, ${String(r.trash_mode_override)},
             ${String(r.wifi_mode_override)}, ${String(r.parking_mode_override)},
-            ${Number(r.current_elec_index)}, ${Number(r.current_water_index)}, ${Number(r.default_occupants)}, ${String(r.note)}
+            ${Number(r.current_elec_index)}, ${Number(r.current_water_index)}, ${Number(r.default_occupants)},
+            ${String(r.note || '')}, ${String(r.contract_images_json || '[]')}
           )
         `
       ),
@@ -1200,13 +1229,14 @@ export async function syncToNeon(): Promise<void> {
           INSERT INTO tenants (
             id, property_id, room_id, full_name, phone, cccd, birth_year, gender,
             hometown, occupation, vehicle_plate, is_representative, move_in_date, move_out_date,
-            temp_residence_status, is_active, notes
+            temp_residence_status, is_active, notes, cccd_front_url, cccd_back_url, contract_images_json
           ) VALUES (
             ${Number(t.id)}, ${Number(t.property_id)}, ${Number(t.room_id)}, ${String(t.full_name)},
             ${String(t.phone)}, ${String(t.cccd)}, ${String(t.birth_year)}, ${String(t.gender)},
             ${String(t.hometown)}, ${String(t.occupation)}, ${String(t.vehicle_plate)},
             ${Number(t.is_representative)}, ${String(t.move_in_date)}, ${String(t.move_out_date)},
-            ${String(t.temp_residence_status)}, ${Number(t.is_active)}, ${String(t.notes)}
+            ${String(t.temp_residence_status)}, ${Number(t.is_active)}, ${String(t.notes || '')},
+            ${String(t.cccd_front_url || '')}, ${String(t.cccd_back_url || '')}, ${String(t.contract_images_json || '[]')}
           )
         `
       ),

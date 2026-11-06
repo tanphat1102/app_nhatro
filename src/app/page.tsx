@@ -9,6 +9,8 @@ import { LoginModal } from '@/components/LoginModal';
 import { UserManagementModal } from '@/components/UserManagementModal';
 import { TenantPortal } from '@/components/TenantPortal';
 import { ModalDialog } from '@/components/ModalDialog';
+import { DocumentLightboxModal, LightboxPreviewData } from '@/components/DocumentLightboxModal';
+import { parseDocumentImages } from '@/lib/imageUtils';
 import * as XLSX from 'xlsx';
 import {
   AlertTriangle,
@@ -17,8 +19,11 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
+  CreditCard,
   Download,
   Edit,
+  Eye,
+  FileCheck2,
   FileSpreadsheet,
   Home,
   KeyRound,
@@ -69,6 +74,7 @@ export default function NhaTroDashboardPage() {
   const [managingRoom, setManagingRoom] = useState<Room | null>(null);
   const [newSheetModalOpen, setNewSheetModalOpen] = useState(false);
   const [newPropModalOpen, setNewPropModalOpen] = useState(false);
+  const [lightboxPreview, setLightboxPreview] = useState<LightboxPreviewData | null>(null);
 
   // New Sheet Form
   const [newSheetMonth, setNewSheetMonth] = useState<number>(4);
@@ -800,6 +806,9 @@ export default function NhaTroDashboardPage() {
             invoices={invoices}
             onOpenReceipt={(inv) => setReceiptInvoice(inv)}
             onViewAllBoard={() => setTenantPortalMode(false)}
+            onUpdateTenantDocuments={async (payload) => {
+              await postAction({ action: 'update_tenant_documents', ...payload });
+            }}
           />
         ) : (
           <>
@@ -1351,6 +1360,7 @@ export default function NhaTroDashboardPage() {
                 );
                 const isOccupied = rTenants.length > 0 || room.status === 'OCCUPIED';
                 const effectiveWaterMode = room.waterModeOverride || currentProperty.waterMode;
+                const roomContracts = parseDocumentImages(room.contractImagesJson);
 
                 return (
                   <article
@@ -1400,7 +1410,7 @@ export default function NhaTroDashboardPage() {
                         </span>
                       </div>
 
-                      {/* Billing mechanism badges */}
+                      {/* Billing mechanism & Room Contract badges */}
                       <div className="mt-2.5 flex flex-wrap gap-1.5 text-[11px]">
                         <span className="rounded bg-sky-50 px-2 py-0.5 font-medium text-sky-800 border border-sky-200">
                           {effectiveWaterMode === 'PER_PERSON'
@@ -1412,6 +1422,25 @@ export default function NhaTroDashboardPage() {
                         <span className="rounded bg-amber-50 px-2 py-0.5 font-medium text-amber-800 border border-amber-200">
                           Điện hiện tại: {room.currentElecIndex} KW
                         </span>
+                        {roomContracts.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLightboxPreview({
+                                title: `Hợp Đồng Thuê Phòng ${room.roomNumber} (${currentProperty.name})`,
+                                images: roomContracts.map((c) => ({
+                                  label: c.title,
+                                  dataUrl: c.dataUrl,
+                                  uploadedAt: c.uploadedAt,
+                                })),
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded bg-teal-100 px-2 py-0.5 font-bold text-teal-900 hover:bg-teal-200"
+                          >
+                            <FileCheck2 className="h-3 w-3" aria-hidden="true" />
+                            HĐ phòng: {roomContracts.length} ảnh
+                          </button>
+                        )}
                         {room.lightingModeOverride === 'FREE' && (
                           <span className="rounded bg-purple-50 px-2 py-0.5 font-medium text-purple-800">
                             Miễn Đèn VS
@@ -1430,34 +1459,77 @@ export default function NhaTroDashboardPage() {
                           </p>
                         ) : (
                           <ul className="space-y-1.5">
-                            {rTenants.map((t) => (
-                              <li
-                                key={t.id}
-                                className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs border border-slate-100"
-                              >
-                                <div className="flex items-center justify-between font-semibold text-slate-800">
-                                  <span>
-                                    {t.fullName}
-                                    {t.isRepresentative && (
-                                      <span className="ml-1 rounded bg-teal-700 px-1 py-0.2 text-[9px] text-white">
-                                        Đ.Diện
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="font-mono text-[11px] text-slate-500">
-                                    {t.phone}
-                                  </span>
-                                </div>
-                                <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500">
-                                  <span>Quê: {t.hometown || '—'}</span>
-                                  {t.vehiclePlate && (
-                                    <span className="font-mono text-slate-600">
-                                      🏍️ {t.vehiclePlate}
+                            {rTenants.map((t) => {
+                              const tContracts = parseDocumentImages(t.contractImagesJson);
+                              const docCount =
+                                (t.cccdFrontUrl ? 1 : 0) +
+                                (t.cccdBackUrl ? 1 : 0) +
+                                tContracts.length;
+
+                              return (
+                                <li
+                                  key={t.id}
+                                  className="rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs border border-slate-100"
+                                >
+                                  <div className="flex items-center justify-between font-semibold text-slate-800">
+                                    <span>
+                                      {t.fullName}
+                                      {t.isRepresentative && (
+                                        <span className="ml-1 rounded bg-teal-700 px-1 py-0.2 text-[9px] text-white">
+                                          Đ.Diện
+                                        </span>
+                                      )}
                                     </span>
-                                  )}
-                                </div>
-                              </li>
-                            ))}
+                                    <span className="font-mono text-[11px] text-slate-500">
+                                      {t.phone}
+                                    </span>
+                                  </div>
+                                  <div className="mt-0.5 flex items-center justify-between text-[11px] text-slate-500">
+                                    <span>Quê: {t.hometown || '—'}</span>
+                                    {docCount > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const imgs: LightboxPreviewData['images'] = [];
+                                          if (t.cccdFrontUrl) {
+                                            imgs.push({
+                                              label: `CCCD Mặt Trước — ${t.fullName}`,
+                                              dataUrl: t.cccdFrontUrl,
+                                            });
+                                          }
+                                          if (t.cccdBackUrl) {
+                                            imgs.push({
+                                              label: `CCCD Mặt Sau — ${t.fullName}`,
+                                              dataUrl: t.cccdBackUrl,
+                                            });
+                                          }
+                                          for (const c of tContracts) {
+                                            imgs.push({
+                                              label: c.title,
+                                              dataUrl: c.dataUrl,
+                                              uploadedAt: c.uploadedAt,
+                                            });
+                                          }
+                                          setLightboxPreview({
+                                            title: `Hồ Sơ CCCD & Hợp Đồng — ${t.fullName} (Phòng ${room.roomNumber})`,
+                                            subtitle: `Số CCCD: ${t.cccd || '—'} • SĐT: ${t.phone || '—'}`,
+                                            images: imgs,
+                                          });
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-bold text-teal-800 hover:bg-teal-200"
+                                      >
+                                        <Eye className="h-2.5 w-2.5" aria-hidden="true" />
+                                        {docCount} ảnh CCCD/HĐ
+                                      </button>
+                                    ) : t.vehiclePlate ? (
+                                      <span className="font-mono text-slate-600">
+                                        🏍️ {t.vehiclePlate}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>
@@ -1474,7 +1546,7 @@ export default function NhaTroDashboardPage() {
                           className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
                         >
                           <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                          Quản lý người ở & Phòng
+                          Người ở, CCCD & HĐ
                         </button>
                       )}
                     </div>
@@ -1491,7 +1563,7 @@ export default function NhaTroDashboardPage() {
                     Sổ Quản Lý Hộ Khẩu / Tạm Trú Toàn Khu Trọ ({filteredTenants.length} hồ sơ)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Tra cứu nhanh theo Họ tên, SĐT, Số CCCD, Quê quán hoặc Biển số xe
+                    Tra cứu nhanh theo Họ tên, SĐT, Số CCCD, Quê quán, Biển số xe và xem/tải ảnh CCCD & Hợp đồng
                   </p>
                 </div>
 
@@ -1532,9 +1604,8 @@ export default function NhaTroDashboardPage() {
                       <th className="py-2.5 px-2">Họ và tên</th>
                       <th className="py-2.5 px-2">SĐT</th>
                       <th className="py-2.5 px-2">Số CCCD</th>
-                      <th className="py-2.5 px-2">Năm sinh / GT</th>
+                      <th className="py-2.5 px-2">Ảnh CCCD & Hợp đồng</th>
                       <th className="py-2.5 px-2">Quê quán</th>
-                      <th className="py-2.5 px-2">Nghề nghiệp</th>
                       <th className="py-2.5 px-2">Biển số xe</th>
                       <th className="py-2.5 px-2">Tạm trú CA</th>
                       <th className="py-2.5 pl-2 pr-3 text-right">Cập nhật</th>
@@ -1543,6 +1614,11 @@ export default function NhaTroDashboardPage() {
                   <tbody className="divide-y divide-slate-200">
                     {filteredTenants.map((t) => {
                       const rm = propertyRooms.find((r) => r.id === t.roomId);
+                      const tContracts = parseDocumentImages(t.contractImagesJson);
+                      const rmContracts = parseDocumentImages(rm?.contractImagesJson);
+                      const hasCccd = Boolean(t.cccdFrontUrl || t.cccdBackUrl);
+                      const totalContracts = tContracts.length + (t.isRepresentative ? rmContracts.length : 0);
+
                       return (
                         <tr
                           key={t.id}
@@ -1563,14 +1639,79 @@ export default function NhaTroDashboardPage() {
                                 Đã chuyển đi
                               </span>
                             )}
+                            <div className="text-[10px] font-normal text-slate-500">
+                              {t.birthYear} ({t.gender}) • {t.occupation || '—'}
+                            </div>
                           </td>
                           <td className="py-2.5 px-2 font-mono">{t.phone || '—'}</td>
                           <td className="py-2.5 px-2 font-mono">{t.cccd || '—'}</td>
                           <td className="py-2.5 px-2">
-                            {t.birthYear} ({t.gender})
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {hasCccd || totalContracts > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const imgs: LightboxPreviewData['images'] = [];
+                                    if (t.cccdFrontUrl) {
+                                      imgs.push({
+                                        label: `CCCD Mặt Trước — ${t.fullName}`,
+                                        dataUrl: t.cccdFrontUrl,
+                                      });
+                                    }
+                                    if (t.cccdBackUrl) {
+                                      imgs.push({
+                                        label: `CCCD Mặt Sau — ${t.fullName}`,
+                                        dataUrl: t.cccdBackUrl,
+                                      });
+                                    }
+                                    for (const c of tContracts) {
+                                      imgs.push({
+                                        label: c.title,
+                                        dataUrl: c.dataUrl,
+                                        uploadedAt: c.uploadedAt,
+                                      });
+                                    }
+                                    if (t.isRepresentative) {
+                                      for (const rc of rmContracts) {
+                                        imgs.push({
+                                          label: rc.title,
+                                          dataUrl: rc.dataUrl,
+                                          uploadedAt: rc.uploadedAt,
+                                        });
+                                      }
+                                    }
+                                    setLightboxPreview({
+                                      title: `Hồ Sơ Ảnh CCCD & Hợp Đồng — ${t.fullName}`,
+                                      subtitle: `Phòng ${rm?.roomNumber || '?'} • Số CCCD: ${t.cccd || '—'}`,
+                                      images: imgs,
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-teal-100 px-2 py-1 text-[11px] font-bold text-teal-900 hover:bg-teal-200"
+                                >
+                                  <Eye className="h-3 w-3" aria-hidden="true" />
+                                  {t.cccdFrontUrl && t.cccdBackUrl
+                                    ? 'CCCD 2 mặt'
+                                    : hasCccd
+                                    ? 'CCCD 1 mặt'
+                                    : ''}
+                                  {hasCccd && totalContracts > 0 ? ' + ' : ''}
+                                  {totalContracts > 0 ? `${totalContracts} ảnh HĐ` : ''}
+                                </button>
+                              ) : currentUser?.role !== 'TENANT' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => rm && setManagingRoom(rm)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+                                >
+                                  <CreditCard className="h-3 w-3" aria-hidden="true" />
+                                  + Tải CCCD / HĐ
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-slate-400">Chưa có ảnh</span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-2.5 px-2">{t.hometown || '—'}</td>
-                          <td className="py-2.5 px-2">{t.occupation || '—'}</td>
                           <td className="py-2.5 px-2 font-mono font-semibold">
                             {t.vehiclePlate || '—'}
                           </td>
@@ -1598,7 +1739,7 @@ export default function NhaTroDashboardPage() {
                                 onClick={() => rm && setManagingRoom(rm)}
                                 className="font-bold text-teal-700 hover:underline"
                               >
-                                Chi tiết
+                                Tải ảnh / Sửa
                               </button>
                             ) : (
                               <span className="text-slate-400">—</span>
@@ -2085,7 +2226,7 @@ export default function NhaTroDashboardPage() {
       <RoomTenantsModal
         open={Boolean(managingRoom)}
         onClose={() => setManagingRoom(null)}
-        room={managingRoom}
+        room={rooms.find((r) => r.id === managingRoom?.id) || managingRoom}
         property={currentProperty}
         tenants={propertyTenants}
         onSaveRoom={async (updatedRoom) => {
@@ -2315,6 +2456,12 @@ export default function NhaTroDashboardPage() {
         currentUser={currentUser}
         onSaveUser={handleSaveUser}
         onDeleteUser={handleDeleteUser}
+      />
+
+      {/* Document & CCCD Image Lightbox Preview Modal */}
+      <DocumentLightboxModal
+        preview={lightboxPreview}
+        onClose={() => setLightboxPreview(null)}
       />
     </div>
   );
