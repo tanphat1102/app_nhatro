@@ -11,9 +11,11 @@ import { TenantPortal } from '@/components/TenantPortal';
 import { ModalDialog } from '@/components/ModalDialog';
 import { DocumentLightboxModal, LightboxPreviewData } from '@/components/DocumentLightboxModal';
 import { parseDocumentImages } from '@/lib/imageUtils';
+import { getVietnameseGivenNameKey, matchesSearchTokens } from '@/lib/searchUtils';
 import * as XLSX from 'xlsx';
 import {
   AlertTriangle,
+  ArrowUpDown,
   Building2,
   CalendarPlus,
   CheckCircle2,
@@ -25,6 +27,7 @@ import {
   Eye,
   FileCheck2,
   FileSpreadsheet,
+  Filter,
   Home,
   KeyRound,
   Lock,
@@ -33,15 +36,18 @@ import {
   Plus,
   QrCode,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   UserCheck,
   UserCog,
   UserPlus,
   Users,
   Wallet,
+  X,
   Zap,
   Droplets,
 } from 'lucide-react';
@@ -63,10 +69,39 @@ export default function NhaTroDashboardPage() {
   const [selectedPropertyId, setSelectedPropertyId] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'billing' | 'rooms_tenants' | 'settings' | 'audit'>('billing');
 
-  // Selected Month/Year for Billing Tab
+  // Selected Month/Year & Search/Filter/Sort for Billing Tab
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [billingSearch, setBillingSearch] = useState<string>('');
+  const [billingSort, setBillingSort] = useState<
+    'ROOM_ASC' | 'TOTAL_DESC' | 'TOTAL_ASC' | 'UNPAID_DESC' | 'ELEC_DESC' | 'WATER_DESC'
+  >('ROOM_ASC');
+
+  // Room Cards Grid Search & Filter (Tab 2)
+  const [roomGridFilter, setRoomGridFilter] = useState<
+    'ALL' | 'OCCUPIED' | 'VACANT' | 'HAS_CONTRACT' | 'MISSING_CONTRACT'
+  >('ALL');
+  const [roomGridSearch, setRoomGridSearch] = useState<string>('');
+
+  // Full Tenant Directory Multi-Filter & Sort (Tab 2)
   const [tenantSearch, setTenantSearch] = useState<string>('');
+  const [tenantRoomFilter, setTenantRoomFilter] = useState<string>('ALL');
+  const [tenantActiveFilter, setTenantActiveFilter] = useState<
+    'ALL' | 'ACTIVE' | 'REPRESENTATIVE' | 'MOVED_OUT'
+  >('ALL');
+  const [tenantTempResFilter, setTenantTempResFilter] = useState<
+    'ALL' | 'REGISTERED' | 'PENDING' | 'EXPIRED'
+  >('ALL');
+  const [tenantDocFilter, setTenantDocFilter] = useState<
+    | 'ALL'
+    | 'FULL_CCCD'
+    | 'MISSING_CCCD'
+    | 'HAS_CONTRACT'
+    | 'HAS_AVATAR'
+    | 'MISSING_AVATAR'
+    | 'HAS_VEHICLE'
+  >('ALL');
+  const [tenantSortBy, setTenantSortBy] = useState<'ROOM_ASC' | 'NAME_ASC' | 'BIRTH_ASC'>('ROOM_ASC');
 
   // Modals state
   const [receiptInvoice, setReceiptInvoice] = useState<Invoice | null>(null);
@@ -99,7 +134,15 @@ export default function NhaTroDashboardPage() {
   });
 
   const billingCaptionId = useId();
+  const billingSearchId = useId();
+  const billingSortId = useId();
+  const roomGridSearchId = useId();
   const tenantTableCaptionId = useId();
+  const tenantSearchId = useId();
+  const tenantRoomFilterId = useId();
+  const tenantTempResFilterId = useId();
+  const tenantDocFilterId = useId();
+  const tenantSortById = useId();
 
   const applyData = useCallback((data: {
     properties: Property[];
@@ -215,14 +258,76 @@ export default function NhaTroDashboardPage() {
     }
   }, [availablePeriods, selectedPeriod]);
 
+  const periodStatusCounts = useMemo(() => {
+    if (!selectedPeriod) {
+      return { all: 0, paid: 0, unpaid: 0, partial: 0, vacant: 0, excelDiff: 0 };
+    }
+    const [m, y] = selectedPeriod.split('-').map(Number);
+    const inPeriod = propertyInvoices.filter((inv) => inv.month === m && inv.year === y);
+    return {
+      all: inPeriod.length,
+      paid: inPeriod.filter((inv) => inv.paymentStatus === 'PAID').length,
+      unpaid: inPeriod.filter((inv) => inv.paymentStatus === 'UNPAID').length,
+      partial: inPeriod.filter((inv) => inv.paymentStatus === 'PARTIAL').length,
+      vacant: inPeriod.filter((inv) => inv.paymentStatus === 'VACANT').length,
+      excelDiff: inPeriod.filter(
+        (inv) => inv.excelOriginalTotal !== null && inv.excelOriginalTotal !== inv.totalAmount
+      ).length,
+    };
+  }, [propertyInvoices, selectedPeriod]);
+
   const currentSheetInvoices = useMemo(() => {
     if (!selectedPeriod) return [];
     const [m, y] = selectedPeriod.split('-').map(Number);
     return propertyInvoices
       .filter((inv) => inv.month === m && inv.year === y)
-      .filter((inv) => (statusFilter === 'ALL' ? true : inv.paymentStatus === statusFilter))
-      .sort((a, b) => Number(a.roomNumber) - Number(b.roomNumber));
-  }, [propertyInvoices, selectedPeriod, statusFilter]);
+      .filter((inv) => {
+        if (statusFilter === 'ALL') return true;
+        if (statusFilter === 'EXCEL_DIFF') {
+          return inv.excelOriginalTotal !== null && inv.excelOriginalTotal !== inv.totalAmount;
+        }
+        return inv.paymentStatus === statusFilter;
+      })
+      .filter((inv) => {
+        if (!billingSearch.trim()) return true;
+        const rTenants = propertyTenants.filter((t) => t.roomId === inv.roomId && t.isActive);
+        const tenantFields = rTenants.flatMap((t) => [
+          t.fullName,
+          t.phone,
+          t.cccd,
+          t.vehiclePlate,
+          t.hometown,
+        ]);
+        return matchesSearchTokens(
+          [
+            `Phòng ${inv.roomNumber}`,
+            `P${inv.roomNumber}`,
+            `P.${inv.roomNumber}`,
+            inv.roomNumber,
+            inv.oldRoomNumber ? `Cũ ${inv.oldRoomNumber}` : '',
+            inv.note,
+            ...tenantFields,
+          ],
+          billingSearch
+        );
+      })
+      .sort((a, b) => {
+        if (billingSort === 'TOTAL_DESC') return b.totalAmount - a.totalAmount;
+        if (billingSort === 'TOTAL_ASC') return a.totalAmount - b.totalAmount;
+        if (billingSort === 'UNPAID_DESC') {
+          const unpaidA = Math.max(0, a.totalAmount - a.paidAmount);
+          const unpaidB = Math.max(0, b.totalAmount - b.paidAmount);
+          return unpaidB - unpaidA;
+        }
+        if (billingSort === 'ELEC_DESC') {
+          return Math.max(0, b.elecNew - b.elecOld) - Math.max(0, a.elecNew - a.elecOld);
+        }
+        if (billingSort === 'WATER_DESC') {
+          return b.waterAmount - a.waterAmount;
+        }
+        return Number(a.roomNumber) - Number(b.roomNumber);
+      });
+  }, [propertyInvoices, propertyTenants, selectedPeriod, statusFilter, billingSearch, billingSort]);
 
   // Summary metrics for current period
   const sheetSummary = useMemo(() => {
@@ -532,19 +637,6 @@ export default function NhaTroDashboardPage() {
     XLSX.writeFile(wb, `Bang_Tien_Tro_${currentProperty.code}_T${m}_${y}.xlsx`);
   };
 
-  const filteredTenants = useMemo(() => {
-    const q = tenantSearch.trim().toLowerCase();
-    if (!q) return propertyTenants;
-    return propertyTenants.filter(
-      (t) =>
-        t.fullName.toLowerCase().includes(q) ||
-        t.phone.toLowerCase().includes(q) ||
-        t.cccd.toLowerCase().includes(q) ||
-        t.hometown.toLowerCase().includes(q) ||
-        t.vehiclePlate.toLowerCase().includes(q)
-    );
-  }, [propertyTenants, tenantSearch]);
-
   const activeTenantsCount = useMemo(
     () => propertyTenants.filter((t) => t.isActive).length,
     [propertyTenants]
@@ -558,6 +650,148 @@ export default function NhaTroDashboardPage() {
       }).length,
     [propertyRooms, propertyTenants]
   );
+
+  const roomFilterCounts = useMemo(() => {
+    let hasContract = 0;
+    let missingContract = 0;
+    for (const r of propertyRooms) {
+      const rTenants = propertyTenants.filter((t) => t.roomId === r.id && t.isActive);
+      const isOccupied = rTenants.length > 0 || r.status === 'OCCUPIED';
+      const rContracts = parseDocumentImages(r.contractImagesJson);
+      const tContractCount = rTenants.reduce(
+        (acc, t) => acc + parseDocumentImages(t.contractImagesJson).length,
+        0
+      );
+      if (rContracts.length + tContractCount > 0) {
+        hasContract += 1;
+      } else if (isOccupied) {
+        missingContract += 1;
+      }
+    }
+    return {
+      all: propertyRooms.length,
+      occupied: occupiedRoomsCount,
+      vacant: Math.max(0, propertyRooms.length - occupiedRoomsCount),
+      hasContract,
+      missingContract,
+    };
+  }, [propertyRooms, propertyTenants, occupiedRoomsCount]);
+
+  const filteredRooms = useMemo(() => {
+    return propertyRooms.filter((room) => {
+      const rTenants = propertyTenants.filter((t) => t.roomId === room.id && t.isActive);
+      const isOccupied = rTenants.length > 0 || room.status === 'OCCUPIED';
+      const rContracts = parseDocumentImages(room.contractImagesJson);
+      const tContractCount = rTenants.reduce(
+        (acc, t) => acc + parseDocumentImages(t.contractImagesJson).length,
+        0
+      );
+      const hasAnyContract = rContracts.length + tContractCount > 0;
+
+      if (roomGridFilter === 'OCCUPIED' && !isOccupied) return false;
+      if (roomGridFilter === 'VACANT' && isOccupied) return false;
+      if (roomGridFilter === 'HAS_CONTRACT' && !hasAnyContract) return false;
+      if (roomGridFilter === 'MISSING_CONTRACT' && (!isOccupied || hasAnyContract)) return false;
+
+      if (!roomGridSearch.trim()) return true;
+      const occupantFields = rTenants.flatMap((t) => [
+        t.fullName,
+        t.phone,
+        t.cccd,
+        t.hometown,
+        t.vehiclePlate,
+      ]);
+      return matchesSearchTokens(
+        [
+          `Phòng ${room.roomNumber}`,
+          `P${room.roomNumber}`,
+          `P.${room.roomNumber}`,
+          room.roomNumber,
+          room.oldRoomNumber ? `Cũ ${room.oldRoomNumber}` : '',
+          room.baseRent,
+          room.note,
+          ...occupantFields,
+        ],
+        roomGridSearch
+      );
+    });
+  }, [propertyRooms, propertyTenants, roomGridFilter, roomGridSearch]);
+
+  const filteredTenants = useMemo(() => {
+    return propertyTenants
+      .filter((t) => {
+        if (tenantRoomFilter !== 'ALL' && String(t.roomId) !== tenantRoomFilter) {
+          return false;
+        }
+        if (tenantActiveFilter === 'ACTIVE' && !t.isActive) return false;
+        if (tenantActiveFilter === 'REPRESENTATIVE' && !t.isRepresentative) return false;
+        if (tenantActiveFilter === 'MOVED_OUT' && t.isActive) return false;
+
+        if (tenantTempResFilter !== 'ALL' && t.tempResidenceStatus !== tenantTempResFilter) {
+          return false;
+        }
+
+        if (tenantDocFilter !== 'ALL') {
+          const rm = propertyRooms.find((r) => r.id === t.roomId);
+          const tContracts = parseDocumentImages(t.contractImagesJson);
+          const rmContracts = parseDocumentImages(rm?.contractImagesJson);
+          const totalContracts = tContracts.length + (t.isRepresentative ? rmContracts.length : 0);
+          const hasFullCccd = Boolean(t.cccdFrontUrl && t.cccdBackUrl);
+
+          if (tenantDocFilter === 'FULL_CCCD' && !hasFullCccd) return false;
+          if (tenantDocFilter === 'MISSING_CCCD' && hasFullCccd) return false;
+          if (tenantDocFilter === 'HAS_CONTRACT' && totalContracts === 0) return false;
+          if (tenantDocFilter === 'HAS_AVATAR' && !t.avatarUrl) return false;
+          if (tenantDocFilter === 'MISSING_AVATAR' && Boolean(t.avatarUrl)) return false;
+          if (tenantDocFilter === 'HAS_VEHICLE' && !t.vehiclePlate?.trim()) return false;
+        }
+
+        if (!tenantSearch.trim()) return true;
+        const rm = propertyRooms.find((r) => r.id === t.roomId);
+        return matchesSearchTokens(
+          [
+            t.fullName,
+            t.phone,
+            t.cccd,
+            t.hometown,
+            t.vehiclePlate,
+            t.occupation,
+            t.birthYear,
+            t.gender,
+            t.notes,
+            rm ? `Phòng ${rm.roomNumber} P${rm.roomNumber} P.${rm.roomNumber}` : '',
+            rm?.oldRoomNumber ? `Cũ ${rm.oldRoomNumber}` : '',
+          ],
+          tenantSearch
+        );
+      })
+      .sort((a, b) => {
+        if (tenantSortBy === 'NAME_ASC') {
+          return getVietnameseGivenNameKey(a.fullName).localeCompare(
+            getVietnameseGivenNameKey(b.fullName)
+          );
+        }
+        if (tenantSortBy === 'BIRTH_ASC') {
+          return (Number(a.birthYear) || 9999) - (Number(b.birthYear) || 9999);
+        }
+        const rmA = propertyRooms.find((r) => r.id === a.roomId);
+        const rmB = propertyRooms.find((r) => r.id === b.roomId);
+        const numA = Number(rmA?.roomNumber || 999);
+        const numB = Number(rmB?.roomNumber || 999);
+        if (numA !== numB) return numA - numB;
+        if (a.isRepresentative !== b.isRepresentative) return a.isRepresentative ? -1 : 1;
+        return a.id - b.id;
+      });
+  }, [
+    propertyTenants,
+    propertyRooms,
+    tenantRoomFilter,
+    tenantActiveFilter,
+    tenantTempResFilter,
+    tenantDocFilter,
+    tenantSearch,
+    tenantSortBy,
+  ]);
 
   if (loading || !currentProperty) {
     return (
@@ -1009,58 +1243,224 @@ export default function NhaTroDashboardPage() {
               </div>
             </div>
 
-            {/* Period selector & Actions bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200/90 bg-white p-4 shadow-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mr-1">
-                  Kỳ thu tiền:
-                </span>
-                {availablePeriods.map((p) => {
-                  const key = `${p.month}-${p.year}`;
-                  const active = selectedPeriod === key;
+            {/* Period selector & Smart Search / Filter / Sort Panel */}
+            <search
+              aria-label="Tìm kiếm, lọc trạng thái và sắp xếp bảng tính tiền hàng tháng"
+              className="rounded-3xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs space-y-4"
+            >
+              {/* Row 1: Period Selector + Sync Button */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mr-1">
+                    Kỳ thu tiền:
+                  </span>
+                  {availablePeriods.map((p) => {
+                    const key = `${p.month}-${p.year}`;
+                    const active = selectedPeriod === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setSelectedPeriod(key)}
+                        className={`rounded-2xl px-4 py-2 text-xs font-bold transition-all ${
+                          active
+                            ? 'bg-gradient-to-r from-teal-700 to-emerald-700 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        Tháng {p.month}/{p.year}
+                        {p.sheetCode && (
+                          <span className="ml-1 opacity-75 font-normal">({p.sheetCode})</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {currentUser?.role !== 'TENANT' && (
+                  <button
+                    type="button"
+                    onClick={handleSyncOccupantsToSheet}
+                    className="inline-flex items-center gap-1.5 rounded-2xl border border-sky-200 bg-sky-50/80 px-3.5 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 transition-colors"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 text-sky-700" aria-hidden="true" />
+                    Đồng bộ số người ở từ Hồ sơ phòng
+                  </button>
+                )}
+              </div>
+
+              {/* Row 2: Search Input + Status Filter Pills + Sort Selector */}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-12 lg:items-end">
+                {/* Search input with explicit label and IME-safe Enter check */}
+                <div className="lg:col-span-5">
+                  <label
+                    htmlFor={billingSearchId}
+                    className="mb-1.5 block text-[11px] font-extrabold uppercase tracking-wider text-slate-600"
+                  >
+                    Tìm nhanh phòng / người ở / SĐT / biển số (hỗ trợ gõ không dấu)
+                  </label>
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <input
+                      id={billingSearchId}
+                      type="search"
+                      name="billing_q"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      value={billingSearch}
+                      onChange={(e) => setBillingSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+                            return;
+                          }
+                        }
+                      }}
+                      placeholder="VD: P2, nguyen van, 090, 65B1, no cu..."
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50/80 py-2.5 pl-10 pr-9 text-xs font-medium text-slate-800 focus:border-teal-600 focus:bg-white"
+                    />
+                    {billingSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setBillingSearch('')}
+                        aria-label="Xóa từ khóa tìm kiếm bảng thu tiền"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sort Selector */}
+                <div className="lg:col-span-3">
+                  <label
+                    htmlFor={billingSortId}
+                    className="mb-1.5 flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider text-slate-600"
+                  >
+                    <ArrowUpDown className="h-3 w-3 text-teal-700" aria-hidden="true" />
+                    Sắp xếp theo
+                  </label>
+                  <select
+                    id={billingSortId}
+                    name="billing_sort"
+                    value={billingSort}
+                    onChange={(e) =>
+                      setBillingSort(
+                        e.target.value as
+                          | 'ROOM_ASC'
+                          | 'TOTAL_DESC'
+                          | 'TOTAL_ASC'
+                          | 'UNPAID_DESC'
+                          | 'ELEC_DESC'
+                          | 'WATER_DESC'
+                      )
+                    }
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-700"
+                  >
+                    <option value="ROOM_ASC">Số phòng (1 → {propertyRooms.length})</option>
+                    <option value="TOTAL_DESC">Tổng tiền (Cao → Thấp)</option>
+                    <option value="TOTAL_ASC">Tổng tiền (Thấp → Cao)</option>
+                    <option value="UNPAID_DESC">Còn chưa thu (Cao → Thấp)</option>
+                    <option value="ELEC_DESC">Điện tiêu thụ (KW cao → thấp)</option>
+                    <option value="WATER_DESC">Tiền nước (Cao → Thấp)</option>
+                  </select>
+                </div>
+
+                {/* Live Filter Status & Reset */}
+                <div className="lg:col-span-4 flex flex-wrap items-center justify-between lg:justify-end gap-2">
+                  <div
+                    aria-live="polite"
+                    className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+                  >
+                    <Filter className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    <span>
+                      Hiển thị <strong>{currentSheetInvoices.length}</strong> / {periodStatusCounts.all} phòng
+                    </span>
+                  </div>
+                  {(statusFilter !== 'ALL' || billingSearch.trim() !== '' || billingSort !== 'ROOM_ASC') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter('ALL');
+                        setBillingSearch('');
+                        setBillingSort('ROOM_ASC');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Đặt lại lọc
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 3: Quick Status Filter Pills with Live Counts */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-500 mr-1">Lọc nhanh trạng thái:</span>
+                {(
+                  [
+                    {
+                      id: 'ALL',
+                      label: `Tất cả (${periodStatusCounts.all})`,
+                      activeClass: 'bg-slate-900 text-white border-slate-900',
+                    },
+                    {
+                      id: 'PAID',
+                      label: `✓ Đã thu đủ (${periodStatusCounts.paid})`,
+                      activeClass: 'bg-emerald-700 text-white border-emerald-700',
+                    },
+                    {
+                      id: 'UNPAID',
+                      label: `⏳ Chưa đóng (${periodStatusCounts.unpaid})`,
+                      activeClass: 'bg-rose-700 text-white border-rose-700',
+                    },
+                    {
+                      id: 'PARTIAL',
+                      label: `◐ Thu 1 phần (${periodStatusCounts.partial})`,
+                      activeClass: 'bg-amber-600 text-white border-amber-600',
+                    },
+                    {
+                      id: 'VACANT',
+                      label: `○ Phòng trống (${periodStatusCounts.vacant})`,
+                      activeClass: 'bg-slate-600 text-white border-slate-600',
+                    },
+                    ...(periodStatusCounts.excelDiff > 0
+                      ? [
+                          {
+                            id: 'EXCEL_DIFF',
+                            label: `⚠️ Lệch Excel (${periodStatusCounts.excelDiff})`,
+                            activeClass: 'bg-amber-800 text-white border-amber-800',
+                          },
+                        ]
+                      : []),
+                  ] as const
+                ).map((pill) => {
+                  const isPressed = statusFilter === pill.id;
                   return (
                     <button
-                      key={key}
+                      key={pill.id}
                       type="button"
-                      onClick={() => setSelectedPeriod(key)}
-                      className={`rounded-2xl px-4 py-2 text-xs font-bold transition-all ${
-                        active
-                          ? 'bg-gradient-to-r from-teal-700 to-emerald-700 text-white shadow-sm'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      aria-pressed={isPressed}
+                      onClick={() => setStatusFilter(pill.id)}
+                      className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                        isPressed
+                          ? `${pill.activeClass} shadow-2xs`
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      Tháng {p.month}/{p.year}
-                      {p.sheetCode && (
-                        <span className="ml-1 opacity-75 font-normal">({p.sheetCode})</span>
-                      )}
+                      {pill.label}
                     </button>
                   );
                 })}
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSyncOccupantsToSheet}
-                  className="inline-flex items-center gap-1.5 rounded-2xl border border-sky-200 bg-sky-50/80 px-3.5 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 transition-colors"
-                >
-                  <RefreshCw className="h-3.5 w-3.5 text-sky-700" aria-hidden="true" />
-                  Đồng bộ số người ở từ Hồ sơ phòng
-                </button>
-                <select
-                  aria-label="Lọc theo trạng thái thanh toán"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-2xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700"
-                >
-                  <option value="ALL">Tất cả phòng ({propertyRooms.length})</option>
-                  <option value="PAID">✓ Đã đóng đủ</option>
-                  <option value="UNPAID">⏳ Chưa đóng</option>
-                  <option value="PARTIAL">◐ Đóng một phần</option>
-                  <option value="VACANT">○ Phòng trống</option>
-                </select>
-              </div>
-            </div>
+            </search>
 
             {/* Excel Discrepancy Alert if present in this month */}
             {sheetSummary.discrepancyCount > 0 && (
@@ -1122,6 +1522,32 @@ export default function NhaTroDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
+                    {currentSheetInvoices.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} className="py-10 text-center text-slate-500">
+                          <div className="mx-auto max-w-md space-y-2">
+                            <p className="text-sm font-bold text-slate-700">
+                              Không tìm thấy phòng hoặc hóa đơn nào khớp với bộ lọc hiện tại
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Từ khóa: &ldquo;{billingSearch || '—'}&rdquo; • Trạng thái: {statusFilter}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStatusFilter('ALL');
+                                setBillingSearch('');
+                                setBillingSort('ROOM_ASC');
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                              Hiển thị lại tất cả phòng
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
                     {currentSheetInvoices.map((inv) => {
                       const roomObj = propertyRooms.find((r) => r.id === inv.roomId) || null;
                       const rTenants = propertyTenants.filter(
@@ -1452,20 +1878,151 @@ export default function NhaTroDashboardPage() {
         {/* TAB 2: ROOMS & MULTI-TENANT MANAGEMENT */}
         {activeTab === 'rooms_tenants' && (
           <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-extrabold text-slate-900">
-                  Sơ Đồ Phòng & Hồ Sơ Các Thành Viên Trong Phòng
-                </h2>
-                <p className="text-xs text-slate-600">
-                  Mỗi phòng có thể ở nhiều người. Số lượng người đang ở sẽ tự động liên kết với mục &ldquo;Số người sử dụng&rdquo; khi tính tiền nước/dịch vụ theo đầu người.
-                </p>
+            {/* Room Grid Header + Semantic <search> Filter Bar */}
+            <div className="rounded-3xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">
+                    Sơ Đồ Phòng & Hồ Sơ Các Thành Viên Trong Phòng
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Mỗi phòng có thể ở nhiều người. Số lượng người đang ở sẽ tự động liên kết với mục &ldquo;Số người sử dụng&rdquo; khi tính tiền nước/dịch vụ theo đầu người.
+                  </p>
+                </div>
+                <div
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1.5 rounded-2xl bg-teal-50 border border-teal-200/80 px-3.5 py-1.5 text-xs font-bold text-teal-900"
+                >
+                  <Filter className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                  <span>
+                    Hiển thị <strong>{filteredRooms.length}</strong> / {propertyRooms.length} phòng
+                  </span>
+                </div>
               </div>
+
+              <search
+                aria-label="Tìm và lọc sơ đồ phòng"
+                className="flex flex-wrap items-end justify-between gap-3 pt-1 border-t border-slate-100"
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1">
+                    Lọc phòng:
+                  </span>
+                  {(
+                    [
+                      { id: 'ALL', label: `Tất cả (${roomFilterCounts.all})` },
+                      { id: 'OCCUPIED', label: `Đang có người (${roomFilterCounts.occupied})` },
+                      { id: 'VACANT', label: `Phòng trống (${roomFilterCounts.vacant})` },
+                      { id: 'HAS_CONTRACT', label: `Đã có ảnh HĐ (${roomFilterCounts.hasContract})` },
+                      {
+                        id: 'MISSING_CONTRACT',
+                        label: `Chưa tải ảnh HĐ (${roomFilterCounts.missingContract})`,
+                      },
+                    ] as const
+                  ).map((pill) => {
+                    const active = roomGridFilter === pill.id;
+                    return (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setRoomGridFilter(pill.id)}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                          active
+                            ? 'border-teal-700 bg-teal-700 text-white shadow-2xs'
+                            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {pill.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2 w-full sm:w-auto">
+                  <div className="w-full sm:w-72">
+                    <label
+                      htmlFor={roomGridSearchId}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Tìm phòng / người trong phòng (không dấu)
+                    </label>
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <input
+                        id={roomGridSearchId}
+                        type="search"
+                        name="room_grid_q"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        value={roomGridSearch}
+                        onChange={(e) => setRoomGridSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+                              return;
+                            }
+                          }
+                        }}
+                        placeholder="VD: P3, nguyen, 091, 65B1..."
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pl-8 pr-8 text-xs focus:border-teal-600 focus:bg-white"
+                      />
+                      {roomGridSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setRoomGridSearch('')}
+                          aria-label="Xóa tìm kiếm sơ đồ phòng"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {(roomGridFilter !== 'ALL' || roomGridSearch.trim() !== '') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoomGridFilter('ALL');
+                        setRoomGridSearch('');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Xóa lọc
+                    </button>
+                  )}
+                </div>
+              </search>
             </div>
 
             {/* Room Cards Grid */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-              {propertyRooms.map((room) => {
+            {filteredRooms.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center space-y-2">
+                <p className="text-sm font-bold text-slate-700">
+                  Không có phòng nào khớp với điều kiện lọc hiện tại
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoomGridFilter('ALL');
+                    setRoomGridSearch('');
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white hover:bg-teal-800"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                  Hiển thị lại tất cả {propertyRooms.length} phòng
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {filteredRooms.map((room) => {
                 const rTenants = propertyTenants.filter(
                   (t) => t.roomId === room.id && t.isActive
                 );
@@ -1698,40 +2255,258 @@ export default function NhaTroDashboardPage() {
                   </article>
                 );
               })}
-            </div>
+              </div>
+            )}
 
-            {/* Full Tenant Directory with semantic <search> landmark */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+            {/* Full Tenant Directory with semantic <search> landmark and multi-dimensional filters */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Sổ Quản Lý Hộ Khẩu / Tạm Trú Toàn Khu Trọ ({filteredTenants.length} hồ sơ)
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Sổ Quản Lý Hộ Khẩu / Tạm Trú Toàn Khu Trọ
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Tra cứu nhanh theo Họ tên, SĐT, Số CCCD, Quê quán, Biển số xe và xem/tải ảnh đại diện, CCCD & Hợp đồng
+                    Hỗ trợ tìm kiếm tiếng Việt có dấu hoặc không dấu (VD: &ldquo;nguyen van&rdquo;, &ldquo;dong thap&rdquo;, &ldquo;p2&rdquo;, &ldquo;65b1&rdquo;) kết hợp bộ lọc đa chiều
                   </p>
                 </div>
 
-                {/* Semantic <search> element per modern-web-guidance html guide */}
-                <search className="w-full sm:w-80">
-                  <div className="relative">
-                    <Search
-                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                      aria-hidden="true"
-                    />
-                    <input
-                      type="search"
-                      aria-label="Tìm kiếm khách thuê theo tên, SĐT, CCCD, biển số xe"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      value={tenantSearch}
-                      onChange={(e) => setTenantSearch(e.target.value)}
-                      placeholder="Tìm tên, SĐT, CCCD, biển số xe..."
-                      className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pl-9 pr-3 text-xs focus:bg-white"
-                    />
+                <div className="flex flex-wrap items-center gap-2">
+                  <div
+                    aria-live="polite"
+                    className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-100 px-3.5 py-1.5 text-xs font-bold text-slate-800"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                    <span>
+                      Đang hiển thị <strong>{filteredTenants.length}</strong> / {propertyTenants.length} hồ sơ
+                    </span>
                   </div>
-                </search>
+
+                  {(tenantSearch.trim() !== '' ||
+                    tenantRoomFilter !== 'ALL' ||
+                    tenantActiveFilter !== 'ALL' ||
+                    tenantTempResFilter !== 'ALL' ||
+                    tenantDocFilter !== 'ALL' ||
+                    tenantSortBy !== 'ROOM_ASC') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTenantSearch('');
+                        setTenantRoomFilter('ALL');
+                        setTenantActiveFilter('ALL');
+                        setTenantTempResFilter('ALL');
+                        setTenantDocFilter('ALL');
+                        setTenantSortBy('ROOM_ASC');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Đặt lại tất cả bộ lọc
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Semantic <search> landmark enclosing all Tenant Directory search & filter controls */}
+              <search
+                aria-label="Tra cứu và lọc danh sách khách thuê toàn khu trọ"
+                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3.5 space-y-3"
+              >
+                {/* Row 1: Quick Residence Status Toggle Pills */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1">
+                    Trạng thái cư trú:
+                  </span>
+                  {(
+                    [
+                      { id: 'ALL', label: `Tất cả (${propertyTenants.length})` },
+                      { id: 'ACTIVE', label: `Đang ở (${activeTenantsCount})` },
+                      {
+                        id: 'REPRESENTATIVE',
+                        label: `Đại diện phòng (${propertyTenants.filter((t) => t.isRepresentative).length})`,
+                      },
+                      {
+                        id: 'MOVED_OUT',
+                        label: `Đã chuyển đi (${propertyTenants.filter((t) => !t.isActive).length})`,
+                      },
+                    ] as const
+                  ).map((pill) => {
+                    const active = tenantActiveFilter === pill.id;
+                    return (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setTenantActiveFilter(pill.id)}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                          active
+                            ? 'border-teal-700 bg-teal-700 text-white shadow-2xs'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {pill.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Row 2: Multi-field Search + Room Filter + Temp Residence + Doc Filter + Sort */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+                  {/* Keyword Search */}
+                  <div className="sm:col-span-2 lg:col-span-4">
+                    <label
+                      htmlFor={tenantSearchId}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Từ khóa (Tên, SĐT, CCCD, Quê quán, Biển số, Nghề nghiệp)
+                    </label>
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                        aria-hidden="true"
+                      />
+                      <input
+                        id={tenantSearchId}
+                        type="search"
+                        name="tenant_q"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        value={tenantSearch}
+                        onChange={(e) => setTenantSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+                              return;
+                            }
+                          }
+                        }}
+                        placeholder="Gõ có dấu hoặc không dấu: nguyen van, can tho, 65B1..."
+                        className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-8 text-xs focus:border-teal-600"
+                      />
+                      {tenantSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setTenantSearch('')}
+                          aria-label="Xóa từ khóa tìm kiếm khách thuê"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Room Filter */}
+                  <div className="lg:col-span-2">
+                    <label
+                      htmlFor={tenantRoomFilterId}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Theo phòng
+                    </label>
+                    <select
+                      id={tenantRoomFilterId}
+                      name="tenant_room"
+                      value={tenantRoomFilter}
+                      onChange={(e) => setTenantRoomFilter(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      <option value="ALL">Tất cả phòng ({propertyRooms.length})</option>
+                      {propertyRooms.map((r) => (
+                        <option key={r.id} value={String(r.id)}>
+                          Phòng {r.roomNumber}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Police Temporary Residence Filter */}
+                  <div className="lg:col-span-2">
+                    <label
+                      htmlFor={tenantTempResFilterId}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Tạm trú Công an
+                    </label>
+                    <select
+                      id={tenantTempResFilterId}
+                      name="tenant_temp_res"
+                      value={tenantTempResFilter}
+                      onChange={(e) =>
+                        setTenantTempResFilter(
+                          e.target.value as 'ALL' | 'REGISTERED' | 'PENDING' | 'EXPIRED'
+                        )
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      <option value="ALL">Tất cả trạng thái</option>
+                      <option value="REGISTERED">✓ Đã đăng ký CA</option>
+                      <option value="PENDING">⏳ Chờ đăng ký CA</option>
+                      <option value="EXPIRED">⚠️ Hết hạn / Chưa ĐK</option>
+                    </select>
+                  </div>
+
+                  {/* Document & Vehicle Completeness Filter */}
+                  <div className="lg:col-span-2">
+                    <label
+                      htmlFor={tenantDocFilterId}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Hồ sơ Ảnh & Xe
+                    </label>
+                    <select
+                      id={tenantDocFilterId}
+                      name="tenant_doc_filter"
+                      value={tenantDocFilter}
+                      onChange={(e) =>
+                        setTenantDocFilter(
+                          e.target.value as
+                            | 'ALL'
+                            | 'FULL_CCCD'
+                            | 'MISSING_CCCD'
+                            | 'HAS_CONTRACT'
+                            | 'HAS_AVATAR'
+                            | 'MISSING_AVATAR'
+                            | 'HAS_VEHICLE'
+                        )
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      <option value="ALL">Tất cả hồ sơ</option>
+                      <option value="FULL_CCCD">✓ Đủ CCCD 2 mặt</option>
+                      <option value="MISSING_CCCD">⚠️ Thiếu ảnh CCCD</option>
+                      <option value="HAS_CONTRACT">📄 Có ảnh Hợp đồng</option>
+                      <option value="HAS_AVATAR">👤 Đã có Avatar</option>
+                      <option value="MISSING_AVATAR">○ Chưa có Avatar</option>
+                      <option value="HAS_VEHICLE">🏍️ Có đăng ký xe máy</option>
+                    </select>
+                  </div>
+
+                  {/* Sort Order */}
+                  <div className="lg:col-span-2">
+                    <label
+                      htmlFor={tenantSortById}
+                      className="mb-1 block text-[11px] font-bold text-slate-600"
+                    >
+                      Sắp xếp danh sách
+                    </label>
+                    <select
+                      id={tenantSortById}
+                      name="tenant_sort"
+                      value={tenantSortBy}
+                      onChange={(e) =>
+                        setTenantSortBy(e.target.value as 'ROOM_ASC' | 'NAME_ASC' | 'BIRTH_ASC')
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      <option value="ROOM_ASC">Theo số phòng (1 → N)</option>
+                      <option value="NAME_ASC">Theo tên (A → Z)</option>
+                      <option value="BIRTH_ASC">Theo năm sinh (Lớn → Nhỏ)</option>
+                    </select>
+                  </div>
+                </div>
+              </search>
 
               <div
                 tabIndex={0}
@@ -1757,6 +2532,35 @@ export default function NhaTroDashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
+                    {filteredTenants.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-10 text-center text-slate-500">
+                          <div className="mx-auto max-w-md space-y-2">
+                            <p className="text-sm font-bold text-slate-700">
+                              Không tìm thấy hồ sơ khách thuê nào phù hợp với bộ lọc
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Bạn có thể gõ tên không dấu, số điện thoại, biển số xe hoặc nhấn đặt lại bộ lọc bên dưới.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTenantSearch('');
+                                setTenantRoomFilter('ALL');
+                                setTenantActiveFilter('ALL');
+                                setTenantTempResFilter('ALL');
+                                setTenantDocFilter('ALL');
+                                setTenantSortBy('ROOM_ASC');
+                              }}
+                              className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                              Hiển thị lại toàn bộ ({propertyTenants.length} hồ sơ)
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
                     {filteredTenants.map((t) => {
                       const rm = propertyRooms.find((r) => r.id === t.roomId);
                       const tContracts = parseDocumentImages(t.contractImagesJson);
