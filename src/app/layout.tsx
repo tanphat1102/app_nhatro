@@ -26,8 +26,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="vi" className={`${sansFont.variable} ${monoFont.variable}`}>
-      <body className="min-h-screen bg-slate-50/80 text-slate-900 antialiased selection:bg-teal-600 selection:text-white">
+    <html lang="vi" suppressHydrationWarning className={`${sansFont.variable} ${monoFont.variable}`}>
+      <head>
+        <meta name="color-scheme" content="light dark" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try {
+  const saved = localStorage.getItem("color-scheme") ?? "light";
+  const meta = document.querySelector('meta[name="color-scheme"]');
+  if (meta) meta.content = saved;
+  const resolved = saved === "dark" || (saved === "light dark" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  document.documentElement.dataset.theme = resolved;
+} catch {}`,
+          }}
+        />
+      </head>
+      <body className="min-h-screen antialiased selection:bg-teal-600 selection:text-white">
         {children}
       </body>
     </html>

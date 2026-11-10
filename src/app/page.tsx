@@ -20,6 +20,7 @@ import { UserManagementModal } from '@/components/UserManagementModal';
 import { TenantPortal } from '@/components/TenantPortal';
 import { ModalDialog } from '@/components/ModalDialog';
 import { DocumentLightboxModal, LightboxPreviewData } from '@/components/DocumentLightboxModal';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { parseDocumentImages } from '@/lib/imageUtils';
 import { getVietnameseGivenNameKey, matchesSearchTokens } from '@/lib/searchUtils';
 import * as XLSX from 'xlsx';
@@ -1004,8 +1005,10 @@ export default function NhaTroDashboardPage() {
             </div>
           </div>
 
-          {/* User Auth & Profile Badge */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Theme Toggle & User Auth Badge */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <ThemeToggle />
+
             {currentUser ? (
               <div className="flex items-center gap-1.5 sm:gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/90 p-1.5 shadow-2xs">
                 <div
@@ -1089,7 +1092,7 @@ export default function NhaTroDashboardPage() {
         {/* Property Switcher Bar */}
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 border-t border-slate-100/90 px-4 py-2.5 sm:px-6 bg-slate-50/40">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mr-1">
               Cơ sở trọ:
             </span>
             {properties.map((prop) => {
@@ -1101,19 +1104,19 @@ export default function NhaTroDashboardPage() {
                   onClick={() => setSelectedPropertyId(prop.id)}
                   className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${
                     isSelected
-                      ? 'bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white shadow-sm ring-1 ring-teal-500/30'
+                      ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-xs ring-2 ring-teal-500/25'
                       : 'border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-100 hover:border-slate-300'
                   }`}
                 >
                   <Home
-                    className={`h-3.5 w-3.5 ${isSelected ? 'text-teal-400' : 'text-slate-400'}`}
+                    className={`h-3.5 w-3.5 ${isSelected ? 'text-white' : 'text-slate-400'}`}
                     aria-hidden="true"
                   />
                   <span>{prop.name}</span>
                   <span
                     className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
                       isSelected
-                        ? 'bg-teal-500/25 text-teal-200 border border-teal-400/30'
+                        ? 'bg-white/20 text-white border border-white/30'
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >
@@ -1248,39 +1251,39 @@ export default function NhaTroDashboardPage() {
             )}
 
             {/* Executive Property Hero Banner */}
-            <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 p-5 sm:p-6 text-white shadow-lg border border-slate-800">
+            <section className="relative overflow-hidden rounded-3xl border border-teal-200/90 bg-gradient-to-r from-teal-50/90 via-emerald-50/70 to-cyan-50/80 p-5 sm:p-6 text-slate-900 shadow-xs">
               <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
                 <div className="space-y-2.5">
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-teal-400/20 border border-teal-400/30 px-3 py-1 text-xs font-extrabold text-teal-200 backdrop-blur-md">
-                      <Home className="h-3.5 w-3.5 text-teal-300" aria-hidden="true" />
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-teal-200 px-3 py-1 text-xs font-extrabold text-teal-900 shadow-2xs">
+                      <Home className="h-3.5 w-3.5 text-teal-600" aria-hidden="true" />
                       {currentProperty.name}
                     </span>
-                    <span className="text-xs font-medium text-slate-300">
+                    <span className="text-xs font-semibold text-slate-600">
                       📍 {currentProperty.address}
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs pt-0.5">
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-semibold text-amber-200 border border-white/15">
-                      <Zap className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
-                      Điện: <strong className="font-mono text-white">{formatVND(currentProperty.electricityRate)}</strong> đ/KW
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 font-semibold text-amber-900 border border-amber-200 shadow-2xs">
+                      <Zap className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
+                      Điện: <strong className="font-mono text-slate-900">{formatVND(currentProperty.electricityRate)}</strong> đ/KW
                     </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-semibold text-sky-200 border border-white/15">
-                      <Droplets className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 font-semibold text-sky-900 border border-sky-200 shadow-2xs">
+                      <Droplets className="h-3.5 w-3.5 text-sky-600" aria-hidden="true" />
                       Nước:{' '}
-                      <strong className="font-mono text-white">{formatVND(currentProperty.waterRate)}</strong>{' '}
+                      <strong className="font-mono text-slate-900">{formatVND(currentProperty.waterRate)}</strong>{' '}
                       {currentProperty.waterMode === 'BY_METER'
                         ? 'đ/m³ (Đồng hồ)'
                         : currentProperty.waterMode === 'PER_PERSON'
                         ? 'đ/người (Đầu người)'
                         : 'đ/phòng'}
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-medium text-slate-200 border border-white/10">
-                      Rác: <strong className="font-mono text-white">{formatVND(currentProperty.trashRate)}</strong> đ/tháng
+                    <span className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 font-medium text-slate-700 border border-slate-200 shadow-2xs">
+                      Rác: <strong className="font-mono text-slate-900">{formatVND(currentProperty.trashRate)}</strong> đ/tháng
                     </span>
                     {currentProperty.lightingRate > 0 && currentProperty.lightingMode !== 'FREE' && (
-                      <span className="inline-flex items-center gap-1 rounded-xl bg-white/10 backdrop-blur-md px-3 py-1.5 font-medium text-slate-200 border border-white/10">
-                        Đèn VS: <strong className="font-mono text-white">{formatVND(currentProperty.lightingRate)}</strong> đ/tháng
+                      <span className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 font-medium text-slate-700 border border-slate-200 shadow-2xs">
+                        Đèn VS: <strong className="font-mono text-slate-900">{formatVND(currentProperty.lightingRate)}</strong> đ/tháng
                       </span>
                     )}
                   </div>
@@ -1291,7 +1294,7 @@ export default function NhaTroDashboardPage() {
                     <button
                       type="button"
                       onClick={() => setNewSheetModalOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-teal-400 to-emerald-400 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md hover:from-teal-300 hover:to-emerald-300 transition-all"
+                      className="inline-flex items-center gap-1.5 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm hover:from-teal-700 hover:to-emerald-700 transition-all"
                     >
                       <CalendarPlus className="h-4 w-4" aria-hidden="true" />
                       Lập bảng thu tiền tháng mới
@@ -1300,9 +1303,9 @@ export default function NhaTroDashboardPage() {
                   <button
                     type="button"
                     onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md px-4 py-2.5 text-xs font-bold text-white hover:bg-white/20 transition-all"
+                    className="inline-flex items-center gap-1.5 rounded-2xl border border-teal-300 bg-white px-4 py-2.5 text-xs font-bold text-teal-900 shadow-2xs hover:bg-teal-50 transition-all"
                   >
-                    <Download className="h-4 w-4 text-teal-300" aria-hidden="true" />
+                    <Download className="h-4 w-4 text-teal-700" aria-hidden="true" />
                     Xuất Excel (.xlsx)
                   </button>
                 </div>
@@ -1631,7 +1634,7 @@ export default function NhaTroDashboardPage() {
                     {
                       id: 'ALL',
                       label: `Tất cả (${periodStatusCounts.all})`,
-                      activeClass: 'bg-slate-900 text-white border-slate-900',
+                      activeClass: 'bg-teal-700 text-white border-teal-700',
                     },
                     {
                       id: 'PAID',
@@ -1808,7 +1811,7 @@ export default function NhaTroDashboardPage() {
                           {/* Sticky Row Header: Room Number */}
                           <th scope="row" className="py-3 pl-4 pr-2 text-left font-bold text-slate-900">
                             <div className="flex items-center gap-1.5">
-                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900 text-xs font-black text-white">
+                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-teal-700 text-xs font-black text-white shadow-2xs">
                                 {inv.roomNumber}
                               </span>
                               {inv.oldRoomNumber && (
@@ -2122,37 +2125,37 @@ export default function NhaTroDashboardPage() {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-slate-900 bg-slate-900 text-white font-bold">
-                      <td colSpan={3} className="py-3.5 pl-4 pr-2 text-xs uppercase">
+                    <tr className="border-t-2 border-teal-600 bg-gradient-to-r from-teal-50 via-emerald-50/80 to-teal-50 text-slate-900 font-bold">
+                      <td colSpan={3} className="py-3.5 pl-4 pr-2 text-xs uppercase text-teal-950">
                         TỔNG CỘNG KỲ THÁNG {currMonth}/{currYear}
                       </td>
-                      <td className="py-3.5 px-2 text-right font-mono">
+                      <td className="py-3.5 px-2 text-right font-mono text-slate-900">
                         {formatVND(sheetSummary.elecTotal)}
                       </td>
                       <td className="py-3.5 px-2" />
-                      <td className="py-3.5 px-2 text-right font-mono">
+                      <td className="py-3.5 px-2 text-right font-mono text-slate-900">
                         {formatVND(sheetSummary.waterTotal)}
                       </td>
-                      <td className="py-3.5 px-2 text-right font-mono">
+                      <td className="py-3.5 px-2 text-right font-mono text-slate-900">
                         {formatVND(sheetSummary.trashTotal)}
                       </td>
                       {(currentProperty.lightingRate > 0 || sheetSummary.lightingTotal > 0) && (
-                        <td className="py-3.5 px-2 text-right font-mono">
+                        <td className="py-3.5 px-2 text-right font-mono text-slate-900">
                           {formatVND(sheetSummary.lightingTotal)}
                         </td>
                       )}
                       {sheetSummary.hasAnyOtherFees && (
-                        <td className="py-3.5 px-2 text-right font-mono text-indigo-300">
+                        <td className="py-3.5 px-2 text-right font-mono text-indigo-800">
                           {formatVND(sheetSummary.otherFeesTotal)}
                         </td>
                       )}
-                      <td className="py-3.5 px-2 text-right font-mono">
+                      <td className="py-3.5 px-2 text-right font-mono text-slate-900">
                         {formatVND(sheetSummary.rentTotal)}
                       </td>
-                      <td className="py-3.5 px-2 text-right text-base font-black text-amber-300">
+                      <td className="py-3.5 px-2 text-right text-base font-black text-teal-900">
                         {formatVND(sheetSummary.totalRevenue)} đ
                       </td>
-                      <td colSpan={2} className="py-3.5 pl-2 pr-4 text-right text-xs text-emerald-300">
+                      <td colSpan={2} className="py-3.5 pl-2 pr-4 text-right text-xs text-emerald-800">
                         Đã thu: {formatVND(sheetSummary.collectedAmount)} đ
                       </td>
                     </tr>

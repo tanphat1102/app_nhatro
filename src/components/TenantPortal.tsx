@@ -207,7 +207,7 @@ export function TenantPortal({
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="rounded-3xl border border-teal-200 bg-gradient-to-br from-teal-800 via-teal-900 to-slate-900 p-6 text-white shadow-md">
+      <div className="rounded-3xl border border-teal-200/90 bg-gradient-to-br from-teal-50/90 via-emerald-50/70 to-cyan-50/80 p-6 text-slate-900 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             {myTenantProfile?.avatarUrl ? (
@@ -224,7 +224,7 @@ export function TenantPortal({
                     ],
                   })
                 }
-                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-teal-300 shadow-md"
+                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-teal-500 shadow-sm"
                 title="Nhấn để phóng to ảnh đại diện"
               >
                 <img
@@ -236,21 +236,21 @@ export function TenantPortal({
                 />
               </button>
             ) : (
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-teal-300/60 bg-teal-600 text-2xl font-black text-white shadow-md">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-teal-400 bg-teal-600 text-2xl font-black text-white shadow-sm">
                 {myInitial}
               </div>
             )}
 
             <div className="space-y-1">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-500/20 px-3 py-1 text-xs font-semibold text-teal-200 border border-teal-400/30">
-                <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-bold text-teal-800 border border-teal-200 shadow-2xs">
+                <Building2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
                 {property.name}
               </div>
-              <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
+              <h2 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
                 Cổng Thông Tin Phòng {room.roomNumber}
               </h2>
-              <p className="text-xs text-teal-200/80">
-                Xin chào, <strong>{user.fullName}</strong> • 📍 {property.address}
+              <p className="text-xs text-slate-600">
+                Xin chào, <strong className="text-slate-900">{user.fullName}</strong> • 📍 {property.address}
               </p>
             </div>
           </div>
@@ -259,37 +259,37 @@ export function TenantPortal({
             <button
               type="button"
               onClick={onViewAllBoard}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-xs font-bold text-white hover:bg-white/20 backdrop-blur transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-teal-300 bg-white px-3.5 py-2 text-xs font-bold text-teal-900 hover:bg-teal-50 shadow-2xs transition-colors"
             >
-              <History className="h-4 w-4" aria-hidden="true" />
+              <History className="h-4 w-4 text-teal-700" aria-hidden="true" />
               Xem bảng khu trọ
             </button>
           </div>
         </div>
 
         {/* Room Info Highlights */}
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-white/10 pt-4 text-xs">
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-teal-200/80 pt-4 text-xs">
           <div>
-            <span className="text-teal-300 font-medium">Tiền phòng cố định:</span>
-            <div className="text-base font-extrabold text-white mt-0.5">
+            <span className="text-teal-800 font-semibold">Tiền phòng cố định:</span>
+            <div className="text-base font-extrabold text-slate-900 mt-0.5">
               {formatVND(room.baseRent)} đ/tháng
             </div>
           </div>
           <div>
-            <span className="text-teal-300 font-medium">Tiền đặt cọc:</span>
-            <div className="text-base font-extrabold text-white mt-0.5">
+            <span className="text-teal-800 font-semibold">Tiền đặt cọc:</span>
+            <div className="text-base font-extrabold text-slate-900 mt-0.5">
               {formatVND(room.depositAmount)} đ
             </div>
           </div>
           <div>
-            <span className="text-teal-300 font-medium">Số người đang ở:</span>
-            <div className="text-base font-extrabold text-white mt-0.5">
+            <span className="text-teal-800 font-semibold">Số người đang ở:</span>
+            <div className="text-base font-extrabold text-slate-900 mt-0.5">
               {roomTenants.length} thành viên
             </div>
           </div>
           <div>
-            <span className="text-teal-300 font-medium">Thời hạn hợp đồng:</span>
-            <div className="text-sm font-bold text-white mt-0.5">
+            <span className="text-teal-800 font-semibold">Thời hạn hợp đồng:</span>
+            <div className="text-sm font-bold text-slate-900 mt-0.5">
               {room.contractStartDate} → {room.contractEndDate}
             </div>
           </div>
@@ -418,11 +418,11 @@ export function TenantPortal({
               )}
 
               {/* Total Row */}
-              <div className="flex items-center justify-between rounded-xl bg-slate-900 p-3.5 text-white">
-                <span className="text-xs uppercase tracking-wider font-bold">
+              <div className="flex items-center justify-between rounded-xl border-2 border-teal-200 bg-gradient-to-r from-teal-50/90 via-emerald-50/70 to-white p-3.5 text-slate-900">
+                <span className="text-xs uppercase tracking-wider font-bold text-teal-900">
                   {latestInvoice.paymentStatus === 'PARTIAL' ? 'Còn cần thanh toán:' : 'Tổng cộng cần thanh toán:'}
                 </span>
-                <span className="text-xl font-black text-amber-300">
+                <span className="text-xl font-black text-teal-800">
                   {formatVND(remainingToPay > 0 ? remainingToPay : latestInvoice.totalAmount)} đ
                 </span>
               </div>

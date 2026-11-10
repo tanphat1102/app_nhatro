@@ -131,9 +131,9 @@ export function InvoiceReceiptModal({
               <p className="text-xs text-slate-600">{property.address}</p>
             </div>
             <div className="text-right">
-              <div className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-1.5 text-white">
-                <span className="text-xs uppercase tracking-wider text-slate-300">Phòng</span>
-                <span className="text-xl font-black">{invoice.roomNumber}</span>
+              <div className="inline-flex items-center gap-1.5 rounded-xl border-2 border-teal-600/30 bg-teal-50 px-3.5 py-1.5 text-teal-900">
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-700">Phòng</span>
+                <span className="text-xl font-black text-teal-950">{invoice.roomNumber}</span>
               </div>
               {invoice.oldRoomNumber && (
                 <p className="mt-1 text-xs text-slate-500">Phòng cũ: {invoice.oldRoomNumber}</p>
@@ -309,11 +309,11 @@ export function InvoiceReceiptModal({
                 )}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 border-slate-900 bg-slate-900 text-white">
-                  <td colSpan={2} className="px-3 py-3 text-base font-bold uppercase">
+                <tr className="border-t-2 border-teal-600 bg-teal-50/90 text-slate-900">
+                  <td colSpan={2} className="px-3 py-3 text-base font-bold uppercase text-teal-950">
                     Tổng cộng thanh toán
                   </td>
-                  <td className="px-3 py-3 text-right text-lg font-black text-amber-300">
+                  <td className="px-3 py-3 text-right text-lg font-black text-teal-800">
                     {formatVND(invoice.totalAmount)} đ
                   </td>
                 </tr>

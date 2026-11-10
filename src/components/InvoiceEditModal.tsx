@@ -758,23 +758,25 @@ export function InvoiceEditModal({
         </fieldset>
 
         {/* Summary & Save */}
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl bg-slate-900 p-4 text-white">
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border-2 border-teal-200 bg-gradient-to-r from-teal-50/90 via-emerald-50/70 to-white p-4 text-slate-900 shadow-xs">
           <div>
-            <span className="text-xs uppercase tracking-wider text-slate-400">Tổng cộng sau tính toán</span>
-            <div className="text-2xl font-black text-amber-300">{formatVND(liveTotal)} VNĐ</div>
+            <span className="text-xs font-bold uppercase tracking-wider text-teal-800">
+              Tổng cộng sau tính toán
+            </span>
+            <div className="text-2xl font-black text-teal-900">{formatVND(liveTotal)} VNĐ</div>
           </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
             >
               Hủy
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-bold text-slate-950 hover:bg-teal-400 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-xs hover:from-teal-700 hover:to-emerald-700 disabled:opacity-50"
             >
               <Save className="h-4 w-4" aria-hidden="true" />
               {saving ? 'Đang lưu...' : 'Lưu hóa đơn phòng'}
